@@ -290,7 +290,10 @@ button:focus-visible,
 
 .grid {
     display: grid;
-    grid-template-columns: var(--timeline-label-width) minmax(0, 1fr) var(--timeline-credit-width);
+    grid-template-columns:
+        minmax(0, min(var(--timeline-label-width), 52%))
+        minmax(0, 1fr)
+        minmax(56px, var(--timeline-credit-width));
     align-items: center;
     min-width: 0;
 }
@@ -521,12 +524,11 @@ button:focus-visible,
 
 .cred {
     display: grid;
-    grid-template-columns: 60px 34px;
+    grid-template-columns: minmax(0, 1fr) max-content;
     align-items: center;
     gap: 8px;
     padding-left: 10px;
     min-width: 0;
-    overflow: hidden;
 }
 
 .cred i {
@@ -534,17 +536,20 @@ button:focus-visible,
     height: 5px;
     border-radius: 3px;
     min-width: 2px;
+    max-width: 100%;
     opacity: 0.55;
 }
 
 .row:hover .cred i { opacity: 0.9; }
 
 .cred b {
+    min-width: 0;
     font-weight: 400;
     font-size: 11px;
     font-variant-numeric: tabular-nums;
     color: var(--text-color-muted, #8b949e);
     text-align: right;
+    white-space: nowrap;
 }
 
 .row.hot .cred b { color: var(--text-color-default, #e6edf3); }
@@ -683,7 +688,7 @@ button:focus-visible,
     }
     .g s { display: none; }
     .cred {
-        grid-template-columns: 24px 30px;
+        grid-template-columns: minmax(0, 1fr) max-content;
         gap: 4px;
         padding-left: 4px;
     }
@@ -745,13 +750,6 @@ const JS = String.raw`
     var autoRefreshTimer = 0;
 
     function el(id) { return document.getElementById(id); }
-    function timelineWidths() {
-        var style = getComputedStyle(document.documentElement);
-        return {
-            gutter: parseFloat(style.getPropertyValue("--timeline-label-width")) || 390,
-            credit: parseFloat(style.getPropertyValue("--timeline-credit-width")) || 104
-        };
-    }
     function setConnection(stateName, message) {
         state.connection = stateName;
         var status = el("connection-status");
@@ -1071,8 +1069,12 @@ const JS = String.raw`
     function render() {
         var d = state.data;
         var host = el("rows");
-        var widths = timelineWidths();
-        var width = Math.max(120, host.clientWidth - 36 - widths.gutter - widths.credit);
+        /* Read the laid-out middle column instead of reconstructing it from
+           preferred widths. This keeps the time scale aligned when CSS shrinks
+           the label column to preserve the AIU column in a narrow panel. */
+        var timeline = el("ticks");
+        var width = Math.max(1, timeline.clientWidth);
+        var trackLeft = timeline.offsetLeft;
 
         var ix = index();
         if (state.root && !ix.byId[state.root]) state.root = "";
@@ -1166,7 +1168,7 @@ const JS = String.raw`
         }).join("");
 
         host.innerHTML = '<div class="breaks">' +
-            scale.breaks.map(function (b) { return '<i style="left:' + (b + widths.gutter).toFixed(1) + 'px"></i>'; }).join("") +
+            scale.breaks.map(function (b) { return '<i style="left:' + (b + trackLeft).toFixed(1) + 'px"></i>'; }).join("") +
             "</div>" + html;
 
         if (!nodes.length) {
