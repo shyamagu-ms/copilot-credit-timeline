@@ -7,10 +7,16 @@ import {
     joinSession,
 } from "@github/copilot-sdk/extension";
 
-import { collectDashboard, resolveRepository } from "./data.mjs";
+import { collectDashboard, resolveScope, SCOPES } from "./data.mjs";
 import { renderHtml } from "./view.mjs";
 
 const instances = new Map();
+const scopeSchema = {
+    type: "string",
+    enum: Object.values(SCOPES),
+    description:
+        "current_chat_tree（現在チャットと配下）、current_repository（現在リポジトリ）、all_sessions（全セッション）。",
+};
 
 function sendJson(res, statusCode, value) {
     res.writeHead(statusCode, {
@@ -20,18 +26,39 @@ function sendJson(res, statusCode, value) {
     res.end(JSON.stringify(value));
 }
 
-function refresh(entry) {
+function configureScope(entry, { requestedScope, requestedRepository } = {}) {
+    const resolved = resolveScope({
+        requestedScope:
+            requestedScope ??
+            (requestedRepository
+                ? SCOPES.CURRENT_REPOSITORY
+                : entry.scope),
+        requestedRepository: requestedRepository ?? entry.repository,
+        sessionId: entry.sessionId,
+    });
+    entry.scope = resolved.type;
+    entry.repository = resolved.repository;
+}
+
+function refresh(entry, options) {
+    if (options) configureScope(entry, options);
     entry.data = collectDashboard({
         repository: entry.repository,
         currentSessionId: entry.sessionId,
+        scope: entry.scope,
     });
     return entry.data;
 }
 
-async function startServer({ instanceId, repository, sessionId }) {
+async function startServer({ instanceId, repository, scope, sessionId }) {
     const entry = {
-        data: collectDashboard({ repository, currentSessionId: sessionId }),
+        data: collectDashboard({
+            repository,
+            currentSessionId: sessionId,
+            scope,
+        }),
         repository,
+        scope,
         sessionId,
         server: null,
         url: "",
@@ -59,6 +86,17 @@ async function startServer({ instanceId, repository, sessionId }) {
 
             if (req.method === "POST" && url.pathname === "/api/refresh") {
                 sendJson(res, 200, refresh(entry));
+                return;
+            }
+
+            if (req.method === "POST" && url.pathname === "/api/scope") {
+                sendJson(
+                    res,
+                    200,
+                    refresh(entry, {
+                        requestedScope: url.searchParams.get("scope"),
+                    }),
+                );
                 return;
             }
 
@@ -109,8 +147,9 @@ const session = await joinSession({
                     repository: {
                         type: "string",
                         description:
-                            "owner/repository。省略時は現在のセッションから解決します。",
+                            "owner/repository。current_repository の対象を明示する場合に指定します。",
                     },
+                    scope: scopeSchema,
                 },
             },
             actions: [
@@ -118,10 +157,22 @@ const session = await joinSession({
                     name: "refresh",
                     description:
                         "ローカルのセッションログと使用量DBを再読込します。",
+                    inputSchema: {
+                        type: "object",
+                        additionalProperties: false,
+                        properties: {
+                            repository: { type: "string" },
+                            scope: scopeSchema,
+                        },
+                    },
                     handler: (ctx) => {
-                        const data = refresh(requireInstance(ctx.instanceId));
+                        const data = refresh(requireInstance(ctx.instanceId), {
+                            requestedScope: ctx.input?.scope,
+                            requestedRepository: ctx.input?.repository,
+                        });
                         return {
                             refreshedAt: data.generatedAt,
+                            scope: data.scope,
                             repository: data.repository,
                             sessions: data.totals.sessions,
                             aiu: data.totals.aiu,
@@ -136,6 +187,8 @@ const session = await joinSession({
                         type: "object",
                         additionalProperties: false,
                         properties: {
+                            repository: { type: "string" },
+                            scope: scopeSchema,
                             limit: {
                                 type: "integer",
                                 minimum: 1,
@@ -146,8 +199,15 @@ const session = await joinSession({
                     },
                     handler: (ctx) => {
                         const entry = requireInstance(ctx.instanceId);
+                        if (ctx.input?.scope || ctx.input?.repository) {
+                            refresh(entry, {
+                                requestedScope: ctx.input?.scope,
+                                requestedRepository: ctx.input?.repository,
+                            });
+                        }
                         const limit = ctx.input?.limit ?? 10;
                         return {
+                            scope: entry.data.scope,
                             repository: entry.data.repository,
                             totalAiu: entry.data.totals.aiu,
                             sessions: [...entry.data.sessions]
@@ -155,6 +215,7 @@ const session = await joinSession({
                                 .slice(0, limit)
                                 .map((s) => ({
                                     title: s.title,
+                                    repository: s.repository,
                                     stage: s.stage,
                                     startedAt: s.createdAt,
                                     elapsedMs: s.elapsedMs,
@@ -170,8 +231,9 @@ const session = await joinSession({
                 /* Idempotent: the same instanceId arrives again on host re-open
                    and on provider reconnect. Keep the server, but re-read the
                    databases so a focused panel never renders stale numbers, and
-                   honour a repository switch on the same instance. */
-                const repository = resolveRepository({
+                   honour a scope switch on the same instance. */
+                const resolved = resolveScope({
+                    requestedScope: ctx.input?.scope,
                     requestedRepository: ctx.input?.repository,
                     sessionId: ctx.sessionId,
                 });
@@ -179,18 +241,26 @@ const session = await joinSession({
                 if (!entry) {
                     entry = await startServer({
                         instanceId: ctx.instanceId,
-                        repository,
+                        repository: resolved.repository,
+                        scope: resolved.type,
                         sessionId: ctx.sessionId,
                     });
                 } else {
-                    entry.repository = repository;
                     entry.sessionId = ctx.sessionId;
+                    entry.repository = resolved.repository;
+                    entry.scope = resolved.type;
                     refresh(entry);
                 }
 
+                const scopeTitle =
+                    entry.scope === SCOPES.CURRENT_REPOSITORY
+                        ? `Repository: ${entry.repository}`
+                        : entry.scope === SCOPES.ALL_SESSIONS
+                          ? "All sessions"
+                          : "Current chat tree";
                 return {
-                    title: `Credit Timeline · ${entry.repository}`,
-                    status: `${entry.data.totals.sessions} sessions · ${Math.round(entry.data.totals.aiu)} AIU`,
+                    title: `Credit Timeline · ${scopeTitle}`,
+                    status: `${entry.data.scope.label} · ${entry.data.totals.sessions} sessions · ${Math.round(entry.data.totals.aiu)} AIU`,
                     url: entry.url,
                 };
             },

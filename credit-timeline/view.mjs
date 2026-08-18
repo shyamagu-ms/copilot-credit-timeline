@@ -64,6 +64,11 @@ header {
     font-variant-numeric: tabular-nums;
 }
 
+.repo .scope-detail {
+    color: var(--text-color-default, #e6edf3);
+    font-size: 11px;
+}
+
 /* The timezone flip lives inside the meta line instead of adding a button. */
 .tzflip {
     font: inherit;
@@ -644,7 +649,7 @@ const JS = String.raw`
         compress: true,
         sort: "time",
         collapsed: {},
-        root: null,
+        root: "",
         busy: false,
         autoRefresh: false,
         tz: "Asia/Tokyo"
@@ -662,6 +667,26 @@ const JS = String.raw`
     function stageLabel(id) {
         var s = state.data.stages.filter(function (x) { return x.id === id; })[0];
         return s ? s.label : id;
+    }
+    function scopeLabel() {
+        var scope = state.data.scope || {};
+        if (scope.type === "current_repository") return "リポジトリ全体";
+        if (scope.type === "all_sessions") return "全セッション";
+        return "現在チャット";
+    }
+    function syncScopeControls() {
+        var scope = state.data.scope || {};
+        el("scope-title").textContent = scope.label || "Credit Timeline";
+        el("scope-detail").textContent = scope.detail || "";
+        [].forEach.call(document.querySelectorAll("[data-scope]"), function (button) {
+            button.classList.toggle("on", button.dataset.scope === scope.type);
+            button.setAttribute("aria-pressed", button.dataset.scope === scope.type ? "true" : "false");
+        });
+        var repositoryButton = document.querySelector('[data-scope="current_repository"]');
+        repositoryButton.disabled = !state.data.repository;
+        repositoryButton.title = state.data.repository
+            ? "現在のリポジトリに属するセッションを表示"
+            : "このチャットにはリポジトリ情報がありません";
     }
     function num(v) {
         if (v >= 10000) return (v / 1000).toFixed(0) + "k";
@@ -924,12 +949,8 @@ const JS = String.raw`
         var width = Math.max(180, host.clientWidth - 36 - GUTTER - CREDIT);
 
         var ix = index();
-        if (state.root === null) {
-            /* Default: the session that opened the canvas, even when it has no
-               descendants — the breadcrumb is the way back out. */
-            state.root = (d.currentSessionId && ix.byId[d.currentSessionId]) ? d.currentSessionId : "";
-        }
         if (state.root && !ix.byId[state.root]) state.root = "";
+        syncScopeControls();
 
         var nodes = walk(ix);
         var list = nodes.map(function (n) { return n.s; });
@@ -970,7 +991,8 @@ const JS = String.raw`
                 (d.treeAvailable ? "" : " · 親子リンクなし"));
 
         /* breadcrumb */
-        var crumbs = '<b class="crumb' + (state.root ? "" : " on") + '" data-root="">リポジトリ全体</b>';
+        var crumbs = '<b class="crumb' + (state.root ? "" : " on") + '" data-root="">' +
+            esc(scopeLabel()) + "</b>";
         if (state.root) {
             ancestors(state.root, ix).forEach(function (s, i, all) {
                 crumbs += '<i>›</i><b class="crumb' + (i === all.length - 1 ? " on" : "") +
@@ -1023,7 +1045,7 @@ const JS = String.raw`
 
         if (!nodes.length) {
             host.innerHTML = '<div class="empty">' +
-                esc(state.root ? "この範囲に表示できるセッションがありません。パンくずの「リポジトリ全体」で戻れます。"
+                esc(state.root ? "この範囲に表示できるセッションがありません。パンくずのスコープ名から戻れます。"
                     : (d.availability.message || "表示できるセッションがありません。")) + "</div>";
         }
         syncAgentToggle();
@@ -1096,6 +1118,7 @@ const JS = String.raw`
             (ix.kids[id] || []).forEach(function (k) { sum += k.aiu; add(k.id); });
         })(s.id);
         return "<h4>" + esc(s.title) + "</h4><dl>" +
+            (s.repository ? dlRow("リポジトリ", esc(s.repository)) : "") +
             dlRow(esc(stageLabel(s.stage)), esc(s.branch || "-")) +
             (s.model ? dlRow("モデル", esc(modelLabel(s.model))) : "") +
             (s.reasoningEffort ? dlRow("Effort", esc(s.reasoningEffort)) : "") +
@@ -1165,6 +1188,11 @@ const JS = String.raw`
             render();
             return;
         }
+        var scopeButton = ev.target.closest ? ev.target.closest("[data-scope]") : null;
+        if (scopeButton && !scopeButton.disabled) {
+            switchScope(scopeButton.dataset.scope);
+            return;
+        }
         var rootBtn = ev.target.closest ? ev.target.closest("[data-root]") : null;
         if (rootBtn) {
             ev.stopPropagation();
@@ -1230,6 +1258,27 @@ const JS = String.raw`
             });
     }
 
+    function switchScope(scope) {
+        if (state.busy || !scope) return;
+        state.busy = true;
+        fetch("/api/scope?scope=" + encodeURIComponent(scope), { method: "POST" })
+            .then(function (r) {
+                if (!r.ok) throw new Error("Scope change failed");
+                return r.json();
+            })
+            .then(function (json) {
+                state.data = json;
+                state.root = "";
+                hideTip();
+                render();
+                el("rows").parentNode.scrollTop = 0;
+            })
+            .catch(function (error) {
+                el("meta").textContent = error.message;
+            })
+            .then(function () { state.busy = false; });
+    }
+
     function syncAutoRefresh() {
         var button = el("auto-refresh");
         button.classList.toggle("on", state.autoRefresh);
@@ -1291,7 +1340,8 @@ export function renderHtml(data) {
 <div id="app">
     <header>
         <div class="repo">
-            <b>${escapeHtml(data.repository)}</b>
+            <b id="scope-title">${escapeHtml(data.scope?.label ?? "Credit Timeline")}</b>
+            <span class="scope-detail" id="scope-detail">${escapeHtml(data.scope?.detail ?? "")}</span>
             <span id="meta"></span>
         </div>
         <div class="kpis" id="kpis"></div>
@@ -1300,6 +1350,11 @@ export function renderHtml(data) {
     <div class="bar-tools">
         <div id="legend" style="display:flex;gap:6px;flex-wrap:wrap"></div>
         <div class="spacer"></div>
+        <div class="tog" id="scope-switch" aria-label="表示スコープ">
+            <button data-scope="current_chat_tree">現在チャット</button>
+            <button data-scope="current_repository">リポジトリ</button>
+            <button data-scope="all_sessions">全セッション</button>
+        </div>
         <div class="tog">
             <button data-set="compress:1" class="on">圧縮</button>
             <button data-set="compress:0">実時間</button>

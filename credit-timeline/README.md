@@ -36,12 +36,11 @@ Reload extensions in the GitHub Copilot app after installation.
   and AIU, including cases where the settings changed mid-session.
 - **Current session** — the session that opened this canvas is marked with a blue
   background, a left border, and a `現在` (current) badge.
-- **Session hierarchy** — child sessions spawned via `create_session` are indented
-  under their parent. The `フォーカス` (focus) control on each row narrows the view
-  by making that session the root, whether or not it has children. The default root
-  is **the session that opened this canvas** (a single row if it has no children).
-  Use the breadcrumb to move back up. KPIs, the legend, and the time axis are all
-  recalculated for the currently displayed scope.
+- **Session hierarchy** — child sessions spawned via `create_session` or a session
+  fork are indented under their parent. The `フォーカス` (focus) control on each row
+  narrows the selected scope further by making that session the visible root. Use
+  the breadcrumb to return to the selected scope. KPIs, the legend, and the time
+  axis are all recalculated for the currently displayed range.
 - **`▾ N / ▸ N` in a row** — expands or collapses only that session's sub-agents.
   The row itself has no click action, so it can't be confused with `フォーカス`.
 - `すべて折りたたむ / すべて展開` (collapse all / expand all): toggles sub-agent
@@ -53,6 +52,11 @@ Reload extensions in the GitHub Copilot app after installation.
 
 ## Controls
 
+- **Scope selector** — `現在チャット` shows the current session and descendants
+  linked through the app's workspace parent links; `リポジトリ` shows sessions in
+  the current repository; `全セッション` explicitly expands to every local chat
+  and project session. The default is current repository for project sessions and
+  current chat tree for general chats without repository metadata.
 - Stage chips: click to show/hide that stage.
 - `圧縮 / 実時間` (compressed / real time): compression folds idle gaps of 40
   minutes or more into a dashed segment to keep the density readable. Real time
@@ -87,8 +91,10 @@ Reload extensions in the GitHub Copilot app after installation.
 `session-state/<id>/events.jsonl` (sub-agent parent/child relations), and
 `workspace_parent_links` in `$COPILOT_HOME/data.db` (session-to-session parentage).
 If that last one can't be read, the hierarchy is dropped and rows are shown flat.
-The repository of the current session is taken from `workspace.yaml` first, so a
-stale value in the session store doesn't exclude the root session.
+Repository and chat hierarchy are independent filters. Repository metadata is read
+from `workspace.yaml` first. Chat-tree scope uses only parent links recorded in
+`workspace_parent_links`; if those links are unavailable, it safely shows just the
+current session instead of guessing relationships.
 AIU = `SUM(total_nano_aiu) / 1,000,000,000`, i.e. model usage as recorded locally.
 It is not a premium-request quota or a billed amount. The AIU on a session row is
 inclusive of its child agents.
@@ -102,7 +108,10 @@ discrepancy can be explained from here.
 open_canvas({ canvasId: "credit-timeline", instanceId: "credit-timeline-1" })
 ```
 
-To look at another repository, pass `repository: "owner/repo"` in the open input.
+The open input accepts `scope: "current_chat_tree" | "current_repository" |
+"all_sessions"`. To look at another repository, pass
+`{ scope: "current_repository", repository: "owner/repo" }`. The `refresh` and
+`top_consumers` actions accept the same optional scope and repository fields.
 
 ## Privacy
 
