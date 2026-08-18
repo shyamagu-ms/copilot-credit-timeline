@@ -64,6 +64,41 @@ header {
     font-variant-numeric: tabular-nums;
 }
 
+.repo .scope-detail {
+    color: var(--text-color-default, #e6edf3);
+    font-size: 11px;
+}
+
+.connection-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    width: fit-content;
+    margin-top: 3px;
+    color: var(--text-color-muted, #8b949e);
+    font-size: 10px;
+}
+
+.connection-status::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--true-color-green, #3fb950);
+}
+
+.connection-status[data-state="busy"]::before {
+    background: var(--true-color-blue, #4493f8);
+}
+
+.connection-status[data-state="error"] {
+    color: var(--true-color-red, #f85149);
+}
+
+.connection-status[data-state="error"]::before {
+    background: var(--true-color-red, #f85149);
+}
+
 /* The timezone flip lives inside the meta line instead of adding a button. */
 .tzflip {
     font: inherit;
@@ -208,6 +243,13 @@ header {
     opacity: 0.45;
 }
 
+button:focus-visible,
+.chip:focus-visible,
+.crumb:focus-visible {
+    outline: 2px solid var(--color-focus-outline, #4493f8);
+    outline-offset: 2px;
+}
+
 /* ---------- breadcrumb ---------- */
 
 .crumbs {
@@ -248,8 +290,12 @@ header {
 
 .grid {
     display: grid;
-    grid-template-columns: var(--timeline-label-width) 1fr var(--timeline-credit-width);
+    grid-template-columns:
+        minmax(0, min(var(--timeline-label-width), 52%))
+        minmax(0, 1fr)
+        minmax(56px, var(--timeline-credit-width));
     align-items: center;
+    min-width: 0;
 }
 
 .axis {
@@ -452,6 +498,7 @@ header {
     position: relative;
     height: 24px;
     overflow: hidden;
+    min-width: 0;
 }
 
 .bar {
@@ -477,10 +524,11 @@ header {
 
 .cred {
     display: grid;
-    grid-template-columns: 60px 34px;
+    grid-template-columns: minmax(0, 1fr) max-content;
     align-items: center;
     gap: 8px;
     padding-left: 10px;
+    min-width: 0;
 }
 
 .cred i {
@@ -488,17 +536,20 @@ header {
     height: 5px;
     border-radius: 3px;
     min-width: 2px;
+    max-width: 100%;
     opacity: 0.55;
 }
 
 .row:hover .cred i { opacity: 0.9; }
 
 .cred b {
+    min-width: 0;
     font-weight: 400;
     font-size: 11px;
     font-variant-numeric: tabular-nums;
     color: var(--text-color-muted, #8b949e);
     text-align: right;
+    white-space: nowrap;
 }
 
 .row.hot .cred b { color: var(--text-color-default, #e6edf3); }
@@ -602,6 +653,54 @@ header {
     border: 3px solid transparent;
     background-clip: content-box;
 }
+
+@media (max-width: 980px) {
+    :root {
+        --timeline-label-width: 300px;
+        --timeline-credit-width: 88px;
+    }
+    .g {
+        grid-template-columns: 70px minmax(0, 1fr) auto;
+    }
+    .g .run { display: none; }
+    .kpis { gap: 16px; }
+}
+
+@media (max-width: 720px) {
+    :root {
+        --timeline-label-width: 220px;
+        --timeline-credit-width: 72px;
+    }
+    header { padding: 12px 12px 8px; }
+    .flow { padding-inline: 12px; }
+    .bar-tools { padding-inline: 12px; }
+    .axis { padding-inline: 12px; }
+    .rows { padding-inline: 12px; }
+    .kpis {
+        width: 100%;
+        margin-left: 0;
+        justify-content: space-between;
+    }
+    .kpi b { font-size: 18px; }
+    .g {
+        grid-template-columns: minmax(0, 1fr) auto;
+        padding-right: 6px;
+    }
+    .g s { display: none; }
+    .cred {
+        grid-template-columns: minmax(0, 1fr) max-content;
+        gap: 4px;
+        padding-left: 4px;
+    }
+    .row-action.focus { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+}
 `;
 
 const JS = String.raw`
@@ -632,9 +731,6 @@ const JS = String.raw`
         tooling: "Tooling",
         other: "Other"
     };
-    var rootStyle = getComputedStyle(document.documentElement);
-    var GUTTER = parseFloat(rootStyle.getPropertyValue("--timeline-label-width")) || 390;
-    var CREDIT = parseFloat(rootStyle.getPropertyValue("--timeline-credit-width")) || 104;
     var GAP_MS = 40 * 60 * 1000;
     var GAP_PX = 16;
 
@@ -644,15 +740,31 @@ const JS = String.raw`
         compress: true,
         sort: "time",
         collapsed: {},
-        root: null,
+        root: "",
         busy: false,
         autoRefresh: false,
-        tz: "Asia/Tokyo"
+        tz: "Asia/Tokyo",
+        connection: "live"
     };
     var AUTO_REFRESH_MS = 30000;
     var autoRefreshTimer = 0;
 
     function el(id) { return document.getElementById(id); }
+    function setConnection(stateName, message) {
+        state.connection = stateName;
+        var status = el("connection-status");
+        if (!status) return;
+        status.dataset.state = stateName;
+        status.textContent = message;
+    }
+    function parseResponse(response) {
+        return response.json().then(function (json) {
+            if (!response.ok) {
+                throw new Error(json.message || json.error || "更新に失敗しました");
+            }
+            return json;
+        });
+    }
     function esc(s) {
         return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
             return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
@@ -662,6 +774,32 @@ const JS = String.raw`
     function stageLabel(id) {
         var s = state.data.stages.filter(function (x) { return x.id === id; })[0];
         return s ? s.label : id;
+    }
+    function scopeLabel() {
+        var scope = state.data.scope || {};
+        if (scope.type === "current_repository") return "リポジトリ全体";
+        if (scope.type === "current_folder") return "フォルダー全体";
+        if (scope.type === "all_sessions") return "全セッション";
+        return "現在チャット";
+    }
+    function syncScopeControls() {
+        var scope = state.data.scope || {};
+        el("scope-title").textContent = scope.label || "Credit Timeline";
+        el("scope-detail").textContent = scope.detail || "";
+        [].forEach.call(document.querySelectorAll("[data-scope]"), function (button) {
+            button.classList.toggle("on", button.dataset.scope === scope.type);
+            button.setAttribute("aria-pressed", button.dataset.scope === scope.type ? "true" : "false");
+        });
+        var repositoryButton = document.querySelector('[data-scope="current_repository"]');
+        repositoryButton.disabled = !state.data.repository;
+        repositoryButton.title = state.data.repository
+            ? "現在のリポジトリに属するセッションを表示"
+            : "このチャットにはリポジトリ情報がありません";
+        var folderButton = document.querySelector('[data-scope="current_folder"]');
+        folderButton.disabled = !state.data.folder;
+        folderButton.title = state.data.folder
+            ? "現在のルートフォルダーに属するセッションを表示"
+            : "このチャットにはフォルダー情報がありません";
     }
     function num(v) {
         if (v >= 10000) return (v / 1000).toFixed(0) + "k";
@@ -788,27 +926,37 @@ const JS = String.raw`
             segs.push([pts[0], pts[pts.length - 1]]);
         }
 
-        var avail = Math.max(60, width - (segs.length - 1) * GAP_PX);
-        var MINW = Math.min(14, avail / (segs.length * 2));
-        var slack = avail - segs.length * MINW;
+        var gapCount = Math.max(0, segs.length - 1);
+        /* Keep compressed idle gaps within 20% of the available track.
+           A fixed gap per segment eventually exceeded the grid on long histories. */
+        var gapWidth = gapCount
+            ? Math.min(GAP_PX, (width * 0.2) / gapCount)
+            : 0;
+        var avail = Math.max(1, width - gapCount * gapWidth);
+        var MINW = Math.min(14, avail / segs.length);
+        var slack = Math.max(0, avail - segs.length * MINW);
         var total = segs.reduce(function (a, s) { return a + Math.max(1, s[1] - s[0]); }, 0) || 1;
         var px = 0, breaks = [];
         segs.forEach(function (s, i) {
             s.px = px;
             s.w = MINW + (Math.max(1, s[1] - s[0]) / total) * slack;
             px += s.w;
-            if (i < segs.length - 1) { breaks.push(px + GAP_PX / 2); px += GAP_PX; }
+            if (i < segs.length - 1) {
+                breaks.push(px + gapWidth / 2);
+                px += gapWidth;
+            }
         });
 
         function x(t) {
             for (var i = 0; i < segs.length; i++) {
                 if (t <= segs[i][1]) {
                     if (t <= segs[i][0]) return segs[i].px;
-                    return segs[i].px + ((t - segs[i][0]) / (segs[i][1] - segs[i][0])) * segs[i].w;
+                    return Math.min(width, segs[i].px +
+                        ((t - segs[i][0]) / Math.max(1, segs[i][1] - segs[i][0])) * segs[i].w);
                 }
             }
             var last = segs[segs.length - 1];
-            return last.px + last.w;
+            return Math.min(width, last.px + last.w);
         }
         return { x: x, segs: segs, breaks: breaks, min: segs[0][0], max: segs[segs.length - 1][1] };
     }
@@ -921,15 +1069,16 @@ const JS = String.raw`
     function render() {
         var d = state.data;
         var host = el("rows");
-        var width = Math.max(180, host.clientWidth - 36 - GUTTER - CREDIT);
+        /* Read the laid-out middle column instead of reconstructing it from
+           preferred widths. This keeps the time scale aligned when CSS shrinks
+           the label column to preserve the AIU column in a narrow panel. */
+        var timeline = el("ticks");
+        var width = Math.max(1, timeline.clientWidth);
+        var trackLeft = timeline.offsetLeft;
 
         var ix = index();
-        if (state.root === null) {
-            /* Default: the session that opened the canvas, even when it has no
-               descendants — the breadcrumb is the way back out. */
-            state.root = (d.currentSessionId && ix.byId[d.currentSessionId]) ? d.currentSessionId : "";
-        }
         if (state.root && !ix.byId[state.root]) state.root = "";
+        syncScopeControls();
 
         var nodes = walk(ix);
         var list = nodes.map(function (n) { return n.s; });
@@ -970,7 +1119,8 @@ const JS = String.raw`
                 (d.treeAvailable ? "" : " · 親子リンクなし"));
 
         /* breadcrumb */
-        var crumbs = '<b class="crumb' + (state.root ? "" : " on") + '" data-root="">リポジトリ全体</b>';
+        var crumbs = '<b class="crumb' + (state.root ? "" : " on") + '" data-root="">' +
+            esc(scopeLabel()) + "</b>";
         if (state.root) {
             ancestors(state.root, ix).forEach(function (s, i, all) {
                 crumbs += '<i>›</i><b class="crumb' + (i === all.length - 1 ? " on" : "") +
@@ -1018,12 +1168,12 @@ const JS = String.raw`
         }).join("");
 
         host.innerHTML = '<div class="breaks">' +
-            scale.breaks.map(function (b) { return '<i style="left:' + (b + GUTTER).toFixed(1) + 'px"></i>'; }).join("") +
+            scale.breaks.map(function (b) { return '<i style="left:' + (b + trackLeft).toFixed(1) + 'px"></i>'; }).join("") +
             "</div>" + html;
 
         if (!nodes.length) {
             host.innerHTML = '<div class="empty">' +
-                esc(state.root ? "この範囲に表示できるセッションがありません。パンくずの「リポジトリ全体」で戻れます。"
+                esc(state.root ? "この範囲に表示できるセッションがありません。パンくずのスコープ名から戻れます。"
                     : (d.availability.message || "表示できるセッションがありません。")) + "</div>";
         }
         syncAgentToggle();
@@ -1096,6 +1246,7 @@ const JS = String.raw`
             (ix.kids[id] || []).forEach(function (k) { sum += k.aiu; add(k.id); });
         })(s.id);
         return "<h4>" + esc(s.title) + "</h4><dl>" +
+            (s.repository ? dlRow("リポジトリ", esc(s.repository)) : "") +
             dlRow(esc(stageLabel(s.stage)), esc(s.branch || "-")) +
             (s.model ? dlRow("モデル", esc(modelLabel(s.model))) : "") +
             (s.reasoningEffort ? dlRow("Effort", esc(s.reasoningEffort)) : "") +
@@ -1165,6 +1316,11 @@ const JS = String.raw`
             render();
             return;
         }
+        var scopeButton = ev.target.closest ? ev.target.closest("[data-scope]") : null;
+        if (scopeButton && !scopeButton.disabled) {
+            switchScope(scopeButton.dataset.scope);
+            return;
+        }
         var rootBtn = ev.target.closest ? ev.target.closest("[data-root]") : null;
         if (rootBtn) {
             ev.stopPropagation();
@@ -1217,17 +1373,44 @@ const JS = String.raw`
     function refresh() {
         if (state.busy) return;
         state.busy = true;
+        setConnection("busy", "更新中");
         el("refresh").classList.add("on");
         fetch("/api/refresh", { method: "POST" })
-            .then(function (r) { return r.json(); })
+            .then(parseResponse)
             .then(function (json) {
-                if (json && json.sessions) { state.data = json; render(); }
+                if (json && json.sessions) {
+                    state.data = json;
+                    render();
+                    setConnection("live", "同期済み");
+                }
             })
-            .catch(function () { })
-            .then(function () {
+            .catch(function (error) {
+                setConnection("error", error.message);
+            })
+            .finally(function () {
                 state.busy = false;
                 el("refresh").classList.remove("on");
             });
+    }
+
+    function switchScope(scope) {
+        if (state.busy || !scope) return;
+        state.busy = true;
+        setConnection("busy", "スコープ切替中");
+        fetch("/api/scope?scope=" + encodeURIComponent(scope), { method: "POST" })
+            .then(parseResponse)
+            .then(function (json) {
+                state.data = json;
+                state.root = "";
+                hideTip();
+                render();
+                el("rows").parentNode.scrollTop = 0;
+                setConnection("live", "同期済み");
+            })
+            .catch(function (error) {
+                setConnection("error", error.message);
+            })
+            .finally(function () { state.busy = false; });
     }
 
     function syncAutoRefresh() {
@@ -1273,7 +1456,27 @@ const JS = String.raw`
         raf = setTimeout(render, 90);
     });
 
+    function connectEvents() {
+        if (!window.EventSource) {
+            setConnection("error", "ライブ更新非対応");
+            return;
+        }
+        var events = new EventSource("/events");
+        events.addEventListener("dashboard", function (event) {
+            try {
+                state.data = JSON.parse(event.data);
+                render();
+                setConnection("live", "ライブ同期");
+            } catch (error) {
+                setConnection("error", "更新データの読込に失敗");
+            }
+        });
+        events.onopen = function () { setConnection("live", "ライブ同期"); };
+        events.onerror = function () { setConnection("busy", "再接続中"); };
+    }
+
     syncAutoRefresh();
+    connectEvents();
     render();
 })();
 `;
@@ -1291,8 +1494,10 @@ export function renderHtml(data) {
 <div id="app">
     <header>
         <div class="repo">
-            <b>${escapeHtml(data.repository)}</b>
+            <b id="scope-title">${escapeHtml(data.scope?.label ?? "Credit Timeline")}</b>
+            <span class="scope-detail" id="scope-detail">${escapeHtml(data.scope?.detail ?? "")}</span>
             <span id="meta"></span>
+            <span class="connection-status" id="connection-status" data-state="live" role="status" aria-live="polite">接続中</span>
         </div>
         <div class="kpis" id="kpis"></div>
     </header>
@@ -1300,6 +1505,12 @@ export function renderHtml(data) {
     <div class="bar-tools">
         <div id="legend" style="display:flex;gap:6px;flex-wrap:wrap"></div>
         <div class="spacer"></div>
+        <div class="tog" id="scope-switch" aria-label="表示スコープ">
+            <button data-scope="current_chat_tree">現在チャット</button>
+            <button data-scope="current_repository">リポジトリ</button>
+            <button data-scope="current_folder">フォルダー</button>
+            <button data-scope="all_sessions">全セッション</button>
+        </div>
         <div class="tog">
             <button data-set="compress:1" class="on">圧縮</button>
             <button data-set="compress:0">実時間</button>
