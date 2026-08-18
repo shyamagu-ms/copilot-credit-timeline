@@ -31,10 +31,10 @@ Reload extensions in the GitHub Copilot app after installation.
 - **実行設定** — セッション名の右に、直近のモデルと reasoning effort を表示。
   行のホバーでは、途中で設定が変わった場合を含む使用履歴・回数・AIU を確認できる。
 - **現在のセッション** — 青い背景・左線・`現在` バッジで、このキャンバスを開いているセッションを示す。
-- **セッション階層** — `create_session` で起こした子セッションは親の下に字下げして並ぶ。
-  各行の `フォーカス` は、子の有無にかかわらずそのセッションをルートにして表示範囲を絞り込む。
-  既定のルートは**このキャンバスを開いたセッション**（子が無ければ 1 行になる）。
-  パンくずから上位に戻れる。KPI・レジェンド・時間軸はいずれも表示中の範囲で再計算される。
+- **セッション階層** — `create_session` または fork で起こした子セッションは親の下に字下げして並ぶ。
+  各行の `フォーカス` は、選択中のスコープ内でそのセッションを表示上のルートにして絞り込む。
+  パンくずのスコープ名から元の範囲へ戻れる。KPI・レジェンド・時間軸はいずれも表示中の範囲で
+  再計算される。
 - **行内の `▾ N / ▸ N`** — そのセッションのサブエージェントだけを展開・折りたたみする。
   行全体にはクリック操作を割り当てず、`フォーカス` との誤操作を防ぐ。
 - `すべて折りたたむ / すべて展開`: 全セッションのサブエージェント表示を一括で切り替える。
@@ -44,11 +44,18 @@ Reload extensions in the GitHub Copilot app after installation.
 
 ## 操作
 
+- **スコープ切替** — `現在チャット` は現在セッションと app に記録された creator/親リンクで確認できる配下を表示する。
+  `リポジトリ` と `フォルダー` は一致する通常セッションを seed とし、子の worktree path や
+  repository metadata が異なる場合も、確実な親子リンクがある全子孫を含める。`全セッション` は
+  ローカルの全チャット・全プロジェクトセッションを明示的に表示する。プロジェクトセッションの
+  既定は current repository、repository 情報がない一般チャットの既定は current chat tree。
 - ステージのチップ: クリックで表示/非表示。
 - `圧縮 / 実時間`: 圧縮は 40 分以上の無活動区間を破線に畳んで密度を保つ。実時間は等速の時間軸。
 - `時系列 / 消費順`: 行の並び替え（時間軸は常に実時刻）。
 - `自動 OFF / 自動 ON · 30秒`: ON 時に即時更新し、以降は 30 秒間隔で更新する。既定は OFF。
 - `更新`: データ再読込。agent からは `refresh` action。`top_consumers` action で消費上位を取得できる。
+- **ライブ同期**: agent の `refresh` action やスコープ変更を Server-Sent Events で開いている画面へ即時反映する。
+  接続状態はヘッダーに表示し、切断時は自動再接続する。
 - **タイムゾーン切替**: ヘッダーの `JST 時点` をクリックすると UTC、もう一度押すと JST に戻る。
   ボタンは増やさず、メタ情報のこの一語だけがトグルになっている。
 
@@ -68,8 +75,19 @@ Reload extensions in the GitHub Copilot app after installation.
 （名前・branch）、`session-state/<id>/events.jsonl`（サブエージェントの親子関係）、
 `$COPILOT_HOME/data.db` の `workspace_parent_links`（セッション同士の親子関係）。
 最後のものが読めない場合は階層表示を諦めてフラットに並べる。
-現在セッションの repository は `workspace.yaml` を優先し、セッションストアの古い値で
-ルートセッションが除外されないようにする。
+repository、正規化したルートフォルダー、チャット階層は独立したフィルタとして扱う。repository は
+`workspace.yaml` を優先する。repository/folder の一致から seed を選び、current chat tree と同じく
+`coordinating_creator_session_id`、`creator_session_id`、`workspace_parent_links` の優先順で
+記録済みの関係だけを使って子孫を追加する。creator は workspace 行を持たない一般チャットでもよい。
+リンクを読めない場合は関係を推測しない。
+
+repository、folder、all sessions スコープでは、`session.shutdown` が記録済み、使用リクエスト数が
+厳密に 0、nano-AIU が厳密に 0 の3条件をすべて満たすセッションだけを除外する。実行中や
+ライフサイクルイベントなしのセッションは初回 usage 記録前でも残す。current chat tree は
+root/子構造を完全に保つため、終了済みゼロ利用ノードも意図的に残す。フィルタ対象の親に有効な子が
+ある場合、最も近い表示対象の祖先またはトップレベルへ昇格する。KPI と actions は最終表示集合から集計する。
+加えて、タイトル・branch・ライフサイクルイベントがすべてなく、リクエストと AIU も 0 の
+未初期化レコードは、フォルダーなどの一覧表示では除外する。
 AIU = `SUM(total_nano_aiu) / 1,000,000,000` で、ローカル記録上のモデル使用量。
 premium request 枠や課金額ではない。セッション行の AIU は子エージェント分を含む内数。
 
@@ -81,10 +99,15 @@ premium request 枠や課金額ではない。セッション行の AIU は子�
 open_canvas({ canvasId: "credit-timeline", instanceId: "credit-timeline-1" })
 ```
 
-別リポジトリを見る場合は open input に `repository: "owner/repo"` を渡す。
+open input の `scope` には `current_chat_tree`、`current_repository`、`current_folder`、
+`all_sessions` を指定できる。
+別リポジトリを見る場合は `{ scope: "current_repository", repository: "owner/repo" }` を渡す。
+`refresh` と `top_consumers` actions も同じ任意の scope / repository / folder を受け付ける。
 
 ## Privacy
 
 この extension はローカルの Copilot セッション DB を読み取り専用で参照し、ダッシュボードは
 `127.0.0.1` にバインドしたループバック HTTP サーバーからのみ配信する。
 セッションデータを外部サービスへ送信することはない。
+
+画面はホストのテーマトークン、狭いキャンバス幅、OS のモーション低減設定に追従する。
