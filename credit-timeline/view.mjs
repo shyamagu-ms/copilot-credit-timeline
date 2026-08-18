@@ -64,6 +64,23 @@ header {
     font-variant-numeric: tabular-nums;
 }
 
+/* The timezone flip lives inside the meta line instead of adding a button. */
+.tzflip {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    border-bottom: 1px dotted currentColor;
+    line-height: 1.1;
+}
+
+.tzflip:hover,
+.tzflip:focus-visible {
+    color: var(--text-color-default, #e6edf3);
+}
+
 .kpis {
     display: flex;
     gap: 26px;
@@ -629,7 +646,8 @@ const JS = String.raw`
         collapsed: {},
         root: null,
         busy: false,
-        autoRefresh: false
+        autoRefresh: false,
+        tz: "Asia/Tokyo"
     };
     var AUTO_REFRESH_MS = 30000;
     var autoRefreshTimer = 0;
@@ -661,17 +679,25 @@ const JS = String.raw`
         if (h < 48) return h + "h" + (m % 60 ? " " + (m % 60) + "m" : "");
         return Math.floor(h / 24) + "d " + (h % 24) + "h";
     }
-    /* All wall-clock rendering is pinned to JST; the host machine runs UTC. */
-    var TZ = "Asia/Tokyo";
-    var TZFMT = new Intl.DateTimeFormat("en-GB", {
-        timeZone: TZ, month: "2-digit", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", hour12: false
-    });
+    /* All wall-clock rendering follows state.tz; the DB itself stays UTC.
+       JST is the default because the host machine usually runs UTC. */
+    var TZ_LABELS = { "Asia/Tokyo": "JST", "UTC": "UTC" };
+    var TZFMTS = {};
+    function tzLabel() { return TZ_LABELS[state.tz] || state.tz; }
+    function tzfmt() {
+        if (!TZFMTS[state.tz]) {
+            TZFMTS[state.tz] = new Intl.DateTimeFormat("en-GB", {
+                timeZone: state.tz, month: "2-digit", day: "2-digit",
+                hour: "2-digit", minute: "2-digit", hour12: false
+            });
+        }
+        return TZFMTS[state.tz];
+    }
     function tparts(value) {
         var d = value instanceof Date ? value : new Date(value);
         if (isNaN(d)) return null;
         var o = {};
-        TZFMT.formatToParts(d).forEach(function (p) { o[p.type] = p.value; });
+        tzfmt().formatToParts(d).forEach(function (p) { o[p.type] = p.value; });
         return o;
     }
     function clock(iso) {
@@ -935,10 +961,13 @@ const JS = String.raw`
             '<span style="flex:' + Math.max(0.01, t.childAiu) + ';background:color-mix(in srgb, var(--true-color-blue, #4493f8) 40%, transparent)"></span>' +
             '</div></div>';
 
-        el("meta").textContent = clock(d.generatedAt) + " JST 時点 · " +
-            (t.aiu ? Math.round(t.childAiu / t.aiu * 100) : 0) + "% がサブエージェント" +
-            (t.compactionAiu ? " · うち圧縮 " + grp(t.compactionAiu) + " AIU" : "") +
-            (d.treeAvailable ? "" : " · 親子リンクなし");
+        el("meta").innerHTML = esc(clock(d.generatedAt)) +
+            ' <button type="button" id="tzflip" class="tzflip"' +
+            ' title="クリックで JST / UTC を切り替え" aria-label="表示タイムゾーン: ' +
+            tzLabel() + '（クリックで切替）">' + tzLabel() + " 時点</button> · " +
+            esc((t.aiu ? Math.round(t.childAiu / t.aiu * 100) : 0) + "% がサブエージェント" +
+                (t.compactionAiu ? " · うち圧縮 " + grp(t.compactionAiu) + " AIU" : "") +
+                (d.treeAvailable ? "" : " · 親子リンクなし"));
 
         /* breadcrumb */
         var crumbs = '<b class="crumb' + (state.root ? "" : " on") + '" data-root="">リポジトリ全体</b>';
@@ -1130,6 +1159,12 @@ const JS = String.raw`
     });
 
     document.addEventListener("click", function (ev) {
+        if (ev.target.closest && ev.target.closest("#tzflip")) {
+            state.tz = state.tz === "Asia/Tokyo" ? "UTC" : "Asia/Tokyo";
+            hideTip();
+            render();
+            return;
+        }
         var rootBtn = ev.target.closest ? ev.target.closest("[data-root]") : null;
         if (rootBtn) {
             ev.stopPropagation();
