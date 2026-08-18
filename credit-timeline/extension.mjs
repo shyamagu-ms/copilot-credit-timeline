@@ -7,7 +7,12 @@ import {
     joinSession,
 } from "@github/copilot-sdk/extension";
 
-import { collectDashboard, resolveScope, SCOPES } from "./data.mjs";
+import {
+    collectDashboard,
+    resolveScope,
+    SCOPES,
+    topConsumers,
+} from "./data.mjs";
 import { renderHtml } from "./view.mjs";
 
 const instances = new Map();
@@ -241,19 +246,7 @@ const session = await joinSession({
                             repository: entry.data.repository,
                             folder: entry.data.folder,
                             totalAiu: entry.data.totals.aiu,
-                            sessions: [...entry.data.sessions]
-                                .sort((a, b) => b.aiu - a.aiu)
-                                .slice(0, limit)
-                                .map((s) => ({
-                                    title: s.title,
-                                    repository: s.repository,
-                                    stage: s.stage,
-                                    startedAt: s.createdAt,
-                                    elapsedMs: s.elapsedMs,
-                                    aiu: s.aiu,
-                                    childAiu: s.childAiu,
-                                    agents: s.agents.length,
-                                })),
+                            sessions: topConsumers(entry.data, limit),
                         };
                     },
                 },

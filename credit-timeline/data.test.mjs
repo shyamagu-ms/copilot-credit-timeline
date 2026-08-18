@@ -12,6 +12,7 @@ import {
     resolveScope,
     SCOPES,
     sessionTreeIds,
+    topConsumers,
 } from "./data.mjs";
 import { renderHtml } from "./view.mjs";
 
@@ -81,6 +82,99 @@ function createFixture() {
             `name: ${summary}\nrepository: ${repository}\n`,
         );
     });
+    const addLifecycleSession = ({
+        id,
+        repository = "owner/repo-a",
+        summary,
+        cwd = folderRoot,
+        lifecycle,
+        nanoAiu,
+    }) => {
+        const createdAt = "2026-01-04T00:00:00Z";
+        insertSession.run(
+            id,
+            cwd,
+            repository || null,
+            summary,
+            createdAt,
+            createdAt,
+        );
+        if (nanoAiu !== undefined) {
+            insertUsage.run(id, nanoAiu, createdAt);
+        }
+        const sessionDir = join(stateRoot, id);
+        mkdirSync(sessionDir);
+        writeFileSync(
+            join(sessionDir, "workspace.yaml"),
+            `name: ${summary}\nrepository: ${repository}\n`,
+        );
+        if (lifecycle) {
+            writeFileSync(
+                join(sessionDir, "events.jsonl"),
+                JSON.stringify({
+                    type: lifecycle.type,
+                    timestamp: createdAt,
+                    data: lifecycle.data ?? {},
+                }),
+            );
+        }
+    };
+    addLifecycleSession({
+        id: "completed-zero",
+        summary: "Completed zero",
+        lifecycle: {
+            type: "session.shutdown",
+            data: { shutdownType: "routine" },
+        },
+    });
+    addLifecycleSession({
+        id: "cancelled-zero",
+        summary: "Cancelled zero",
+        lifecycle: {
+            type: "session.shutdown",
+            data: { shutdownType: "cancelled" },
+        },
+    });
+    addLifecycleSession({
+        id: "running-zero",
+        summary: "Running zero",
+        lifecycle: { type: "session.start" },
+    });
+    addLifecycleSession({
+        id: "unknown-zero",
+        summary: "Unknown zero",
+    });
+    addLifecycleSession({
+        id: "completed-aiu",
+        summary: "Completed with AIU",
+        lifecycle: { type: "session.shutdown" },
+        nanoAiu: 2_000_000_000,
+    });
+    addLifecycleSession({
+        id: "completed-requests",
+        summary: "Completed with requests",
+        lifecycle: { type: "session.shutdown" },
+        nanoAiu: 0,
+    });
+    addLifecycleSession({
+        id: "filtered-parent",
+        summary: "Filtered parent",
+        lifecycle: { type: "session.shutdown" },
+    });
+    addLifecycleSession({
+        id: "visible-descendant",
+        repository: "",
+        summary: "Visible descendant",
+        cwd: join(root, "worktrees", "visible-descendant"),
+        lifecycle: { type: "session.start" },
+    });
+    addLifecycleSession({
+        id: "chat-zero",
+        repository: "",
+        summary: "Chat zero",
+        cwd: join(root, "worktrees", "chat-zero"),
+        lifecycle: { type: "session.shutdown" },
+    });
     store
         .prepare(
             `INSERT INTO assistant_usage_events
@@ -131,7 +225,16 @@ function createFixture() {
             (4, 'folder-seed', NULL, NULL),
             (5, 'folder-child', 'folder-seed', NULL),
             (6, 'repo-only', NULL, NULL),
-            (7, 'repo-child', 'repo-only', 'repo-only');
+            (7, 'repo-child', 'repo-only', 'repo-only'),
+            (11, 'completed-zero', NULL, NULL),
+            (12, 'cancelled-zero', NULL, NULL),
+            (13, 'running-zero', NULL, NULL),
+            (19, 'unknown-zero', NULL, NULL),
+            (14, 'completed-aiu', NULL, NULL),
+            (15, 'completed-requests', NULL, NULL),
+            (16, 'filtered-parent', NULL, NULL),
+            (17, 'visible-descendant', 'filtered-parent', 'filtered-parent'),
+            (18, 'chat-zero', '${GENERAL_CHAT_ID}', '${GENERAL_CHAT_ID}');
         INSERT INTO workspace_parent_links VALUES
             (3, 2);
     `);
@@ -278,10 +381,26 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
         assert.equal(chat.scope.type, SCOPES.CURRENT_CHAT_TREE);
         assert.deepEqual(
             chat.sessions.map((session) => session.id),
-            [GENERAL_CHAT_ID, CREATED_SESSION_ID, "chat-grandchild"],
+            [
+                GENERAL_CHAT_ID,
+                CREATED_SESSION_ID,
+                "chat-grandchild",
+                "chat-zero",
+            ],
         );
         assert.equal(chat.sessions[1].parentId, GENERAL_CHAT_ID);
         assert.equal(chat.sessions[2].parentId, CREATED_SESSION_ID);
+        assert.equal(chat.sessions[3].parentId, GENERAL_CHAT_ID);
+        const terminalChatRoot = collectDashboard({
+            ...common,
+            currentSessionId: "completed-zero",
+            scope: SCOPES.CURRENT_CHAT_TREE,
+            repository: "",
+        });
+        assert.deepEqual(
+            terminalChatRoot.sessions.map((session) => session.id),
+            ["completed-zero"],
+        );
 
         const chatWithoutLinks = collectDashboard({
             ...common,
@@ -303,8 +422,17 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
         });
         assert.equal(repository.scope.type, SCOPES.CURRENT_REPOSITORY);
         assert.deepEqual(
-            repository.sessions.map((session) => session.id),
-            ["chat-grandchild", "repo-only", "repo-child"],
+            repository.sessions.map((session) => session.id).sort(),
+            [
+                "completed-aiu",
+                "completed-requests",
+                "chat-grandchild",
+                "repo-only",
+                "repo-child",
+                "running-zero",
+                "unknown-zero",
+                "visible-descendant",
+            ].sort(),
         );
         assert.equal(
             repository.sessions.find(
@@ -318,6 +446,16 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
             ).agents.length,
             1,
         );
+        assert.equal(
+            repository.sessions.find(
+                (session) => session.id === "visible-descendant",
+            ).parentId,
+            "",
+        );
+        assert.equal(repository.totals.sessions, 8);
+        assert.equal(repository.totals.agents, 1);
+        assert.equal(repository.totals.aiu, 18.5);
+        assert.equal(repository.totals.requests, 6);
 
         const folder = collectDashboard({
             ...common,
@@ -326,14 +464,26 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
         });
         assert.equal(folder.scope.type, SCOPES.CURRENT_FOLDER);
         assert.deepEqual(
-            folder.sessions.map((session) => session.id),
+            folder.sessions.map((session) => session.id).sort(),
             [
+                "completed-aiu",
+                "completed-requests",
                 GENERAL_CHAT_ID,
                 CREATED_SESSION_ID,
                 "chat-grandchild",
                 "folder-seed",
                 "folder-child",
-            ],
+                "running-zero",
+                "unknown-zero",
+                "visible-descendant",
+            ].sort(),
+        );
+        assert.equal(folder.totals.sessions, 10);
+        assert.equal(
+            folder.sessions.find(
+                (session) => session.id === "visible-descendant",
+            ).parentId,
+            "",
         );
 
         const all = collectDashboard({
@@ -342,7 +492,35 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
             repository: "",
         });
         assert.equal(all.scope.type, SCOPES.ALL_SESSIONS);
-        assert.equal(all.sessions.length, 7);
+        assert.equal(all.sessions.length, 12);
+        assert.deepEqual(
+            all.sessions
+                .filter((session) =>
+                    [
+                        "running-zero",
+                        "unknown-zero",
+                        "completed-aiu",
+                        "completed-requests",
+                    ].includes(session.id),
+                )
+                .map((session) => session.id)
+                .sort(),
+            [
+                "running-zero",
+                "unknown-zero",
+                "completed-aiu",
+                "completed-requests",
+            ].sort(),
+        );
+        assert.equal(
+            topConsumers(all, 50).some(
+                (session) =>
+                    session.title === "Completed zero" ||
+                    session.title === "Cancelled zero" ||
+                    session.title === "Filtered parent",
+            ),
+            false,
+        );
     } finally {
         fixture.cleanup();
     }

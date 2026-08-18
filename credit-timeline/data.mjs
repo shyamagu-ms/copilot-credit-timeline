@@ -149,6 +149,7 @@ export function parseEvents(content) {
     const taskMetadata = new Map();
     let lastEventAt = "";
     let lastLifecycleType = "";
+    let shutdownType = "";
     let selectedModel = "";
     let reasoningEffort = "";
 
@@ -170,6 +171,9 @@ export function parseEvents(content) {
             event.type === "session.shutdown"
         ) {
             lastLifecycleType = event.type;
+            if (event.type === "session.shutdown") {
+                shutdownType = safeText(event.data?.shutdownType);
+            }
             selectedModel =
                 safeText(event.data?.selectedModel) || selectedModel;
             reasoningEffort =
@@ -252,6 +256,7 @@ export function parseEvents(content) {
         })),
         lastEventAt,
         lastLifecycleType,
+        shutdownType,
         selectedModel,
         reasoningEffort,
     };
@@ -264,6 +269,7 @@ function readEvents(sessionId, stateRoot = SESSION_STATE) {
             agents: [],
             lastEventAt: "",
             lastLifecycleType: "",
+            shutdownType: "",
             selectedModel: "",
             reasoningEffort: "",
         };
@@ -272,10 +278,33 @@ function readEvents(sessionId, stateRoot = SESSION_STATE) {
 }
 
 function statusFromEvents(events) {
-    if (events.lastLifecycleType === "session.shutdown") return "idle";
+    if (events.lastLifecycleType === "session.shutdown") {
+        return /cancel(?:led|ed)?/i.test(events.shutdownType)
+            ? "cancelled"
+            : "idle";
+    }
     if (!events.lastEventAt) return "unknown";
     const age = Date.now() - Date.parse(events.lastEventAt);
     return age < 15 * 60 * 1000 ? "active" : "inactive";
+}
+
+function isTerminalWithoutUsage(row, events) {
+    return (
+        events.lastLifecycleType === "session.shutdown" &&
+        Number(row.nano_aiu) === 0 &&
+        Number(row.requests) === 0
+    );
+}
+
+function nearestVisibleParent(sessionId, parents, visibleIds) {
+    const seen = new Set([sessionId]);
+    let parent = safeText(parents[sessionId]);
+    while (parent && !seen.has(parent)) {
+        if (visibleIds.has(parent)) return parent;
+        seen.add(parent);
+        parent = safeText(parents[parent]);
+    }
+    return "";
 }
 
 function durationMs(start, end) {
@@ -405,6 +434,22 @@ export function sessionTreeIds(seedSessionIds, parents) {
     return [...included];
 }
 
+export function topConsumers(dashboard, limit = 10) {
+    return [...dashboard.sessions]
+        .sort((a, b) => b.aiu - a.aiu)
+        .slice(0, limit)
+        .map((session) => ({
+            title: session.title,
+            repository: session.repository,
+            stage: session.stage,
+            startedAt: session.createdAt,
+            elapsedMs: session.elapsedMs,
+            aiu: session.aiu,
+            childAiu: session.childAiu,
+            agents: session.agents.length,
+        }));
+}
+
 function scopeMetadata(scope, repository, folder, currentSessionId) {
     if (scope === SCOPES.CURRENT_REPOSITORY) {
         return {
@@ -513,6 +558,7 @@ export function collectDashboard({
             )
             .all();
         const workspaceBySession = new Map();
+        const eventsBySession = new Map();
         const workspaceFor = (sessionId) => {
             if (!workspaceBySession.has(sessionId)) {
                 workspaceBySession.set(
@@ -521,6 +567,15 @@ export function collectDashboard({
                 );
             }
             return workspaceBySession.get(sessionId);
+        };
+        const eventsFor = (sessionId) => {
+            if (!eventsBySession.has(sessionId)) {
+                eventsBySession.set(
+                    sessionId,
+                    readEvents(sessionId, stateRoot),
+                );
+            }
+            return eventsBySession.get(sessionId);
         };
         let seedIds;
         if (scope === SCOPES.CURRENT_CHAT_TREE) {
@@ -549,9 +604,38 @@ export function collectDashboard({
             scope === SCOPES.ALL_SESSIONS
                 ? new Set(seedIds)
                 : new Set(sessionTreeIds(seedIds, tree.parents));
-        const rows = candidateRows.filter((row) =>
-            selectedIds.has(row.id),
+        /* Lifecycle files and SQLite are separate stores. End the candidate
+           snapshot, then re-read usage after lifecycle inspection so a usage
+           commit immediately preceding shutdown cannot look like terminal zero. */
+        for (const row of candidateRows) {
+            if (selectedIds.has(row.id)) eventsFor(row.id);
+        }
+        db.exec("COMMIT");
+        transactionOpen = false;
+        const freshUsage = db.prepare(
+            `SELECT
+                 COUNT(id) AS requests,
+                 COALESCE(SUM(total_nano_aiu), 0) AS nano_aiu,
+                 COALESCE(SUM(CASE WHEN initiator = 'compaction' THEN total_nano_aiu ELSE 0 END), 0)
+                     AS compaction_nano_aiu,
+                 COALESCE(SUM(CASE WHEN initiator = 'compaction' THEN 1 ELSE 0 END), 0)
+                     AS compaction_requests,
+                 COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                 COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                 COALESCE(SUM(duration_ms), 0) AS model_duration_ms,
+                 MAX(created_at) AS usage_updated_at
+             FROM assistant_usage_events
+             WHERE session_id = ?`,
         );
+        for (const row of candidateRows) {
+            if (!selectedIds.has(row.id)) continue;
+            Object.assign(row, freshUsage.get(row.id));
+        }
+        const rows = candidateRows.filter((row) => {
+            if (!selectedIds.has(row.id)) return false;
+            if (scope === SCOPES.CURRENT_CHAT_TREE) return true;
+            return !isTerminalWithoutUsage(row, eventsFor(row.id));
+        });
 
         const ids = rows.map((row) => row.id);
         const usageByAgent = new Map();
@@ -596,14 +680,11 @@ export function collectDashboard({
             }
         }
 
-        db.exec("COMMIT");
-        transactionOpen = false;
-
         const known = new Set(rows.map((row) => row.id));
 
         const sessions = rows.map((row) => {
             const workspace = workspaceFor(row.id);
-            const events = readEvents(row.id, stateRoot);
+            const events = eventsFor(row.id);
             const agentUsage = usageByAgent.get(row.id) ?? [];
             const usageMap = new Map();
             const modelProfiles = [];
@@ -722,9 +803,11 @@ export function collectDashboard({
                 repository:
                     workspace.repository || row.repository || "",
                 branch: workspace.branch || row.branch || "",
-                parentId: known.has(tree.parents[row.id])
-                    ? tree.parents[row.id]
-                    : "",
+                parentId: nearestVisibleParent(
+                    row.id,
+                    tree.parents,
+                    known,
+                ),
                 stage: classification.stage,
                 stageConfidence: classification.confidence,
                 status: statusFromEvents(events),
@@ -805,7 +888,7 @@ export function collectDashboard({
                 usage: storePath,
                 events: stateRoot,
                 aiuFormula: "SUM(total_nano_aiu) / 1,000,000,000",
-                note: "Sessions are selected by chat tree, repository, folder, or all-session scope. Repository and folder seeds include descendants from recorded workspace creator and parent links; task sub-agents are nested from lifecycle events.",
+                note: "Sessions are selected by chat tree, repository, folder, or all-session scope. Non-chat scopes omit only shutdown sessions with exactly zero requests and zero nano-AIU; visible descendants are promoted past omitted parents. Chat-tree scope preserves every recorded relationship.",
             },
         };
         return dashboard;

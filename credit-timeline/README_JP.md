@@ -78,6 +78,12 @@ repository、正規化したルートフォルダー、チャット階層は独�
 `coordinating_creator_session_id`、`creator_session_id`、`workspace_parent_links` の優先順で
 記録済みの関係だけを使って子孫を追加する。creator は workspace 行を持たない一般チャットでもよい。
 リンクを読めない場合は関係を推測しない。
+
+repository、folder、all sessions スコープでは、`session.shutdown` が記録済み、使用リクエスト数が
+厳密に 0、nano-AIU が厳密に 0 の3条件をすべて満たすセッションだけを除外する。実行中や
+ライフサイクルイベントなしのセッションは初回 usage 記録前でも残す。current chat tree は
+root/子構造を完全に保つため、終了済みゼロ利用ノードも意図的に残す。フィルタ対象の親に有効な子が
+ある場合、最も近い表示対象の祖先またはトップレベルへ昇格する。KPI と actions は最終表示集合から集計する。
 AIU = `SUM(total_nano_aiu) / 1,000,000,000` で、ローカル記録上のモデル使用量。
 premium request 枠や課金額ではない。セッション行の AIU は子エージェント分を含む内数。
 

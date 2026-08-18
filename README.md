@@ -101,6 +101,14 @@ selects seed sessions, then adds descendants using only recorded relationships:
 `workspace_parent_links` in that precedence order. Creator IDs may refer to a
 general chat with no workspace row. Chat-tree scope uses the same relationships
 from the current session. If links are unavailable, no relationships are guessed.
+
+Repository, folder, and all-session scopes omit only sessions that have a recorded
+`session.shutdown`, exactly zero usage requests, and exactly zero nano-AIU. Running
+sessions and sessions without lifecycle events remain visible before their first
+usage record. Current-chat-tree scope intentionally keeps zero-usage terminal nodes
+so the root/child structure remains complete. In the filtered scopes, a retained
+descendant whose parent was omitted is promoted to the nearest visible ancestor or
+the top level. All KPIs and actions use this final visible session set.
 AIU = `SUM(total_nano_aiu) / 1,000,000,000`, i.e. model usage as recorded locally.
 It is not a premium-request quota or a billed amount. The AIU on a session row is
 inclusive of its child agents.
