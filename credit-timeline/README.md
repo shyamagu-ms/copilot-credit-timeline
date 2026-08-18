@@ -1,7 +1,9 @@
 # Credit Timeline
 
-セッションとサブエージェントを**時系列のタイムライン**で並べ、クレジット (AIU) 消費を
-俯瞰する GitHub Copilot canvas extension。
+> English / [日本語版](README_JP.md)
+
+A GitHub Copilot canvas extension that lays out sessions and sub-agents on a
+**chronological timeline** so you can see credit (AIU) consumption at a glance.
 
 ## Requirements
 
@@ -20,62 +22,87 @@ Copy this directory to one of the extension discovery locations:
 
 Reload extensions in the GitHub Copilot app after installation.
 
-## 見方
+## Reading the view
 
-- **上段の棒グラフ** — 時間バケットごとの AIU をステージ色で積み上げ。重ねた細線は累積比率。
-  期間の長さに関係なくキャンバス全幅へ縮尺し、左端から表示する。
-- **タイムライン** — 1 行 = 1 セッション。バーの左右がセッションの開始/終了、色がステージ。
-  バー内の白い縦線はサブエージェントの起動時刻。右端の細バーと数値がそのセッションの AIU。
-- **実行設定** — セッション名の右に、直近のモデルと reasoning effort を表示。
-  行のホバーでは、途中で設定が変わった場合を含む使用履歴・回数・AIU を確認できる。
-- **現在のセッション** — 青い背景・左線・`現在` バッジで、このキャンバスを開いているセッションを示す。
-- **セッション階層** — `create_session` で起こした子セッションは親の下に字下げして並ぶ。
-  各行の `フォーカス` は、子の有無にかかわらずそのセッションをルートにして表示範囲を絞り込む。
-  既定のルートは**このキャンバスを開いたセッション**（子が無ければ 1 行になる）。
-  パンくずから上位に戻れる。KPI・レジェンド・時間軸はいずれも表示中の範囲で再計算される。
-- **行内の `▾ N / ▸ N`** — そのセッションのサブエージェントだけを展開・折りたたみする。
-  行全体にはクリック操作を割り当てず、`フォーカス` との誤操作を防ぐ。
-- `すべて折りたたむ / すべて展開`: 全セッションのサブエージェント表示を一括で切り替える。
-- **サブエージェント行** — 左にエージェント名、中央に作業概要、右にモデルと effort を表示する。
-- **ホバー** — 期間・AIU・リクエスト・トークン・PR/Issue 参照を表示。
-  サブエージェントでは起動時の作業名・依頼概要も表示する。
+- **Overview bars (top)** — AIU per time bucket, stacked by stage color. The thin
+  overlaid line is the cumulative share. The chart is scaled to the full canvas
+  width regardless of how long the period is, starting from the left edge.
+- **Timeline** — one row per session. The left and right edges of a bar are the
+  session's start and end; the color is its stage. White vertical ticks inside a
+  bar mark when sub-agents were launched. The thin bar and number on the right
+  are that session's AIU.
+- **Run settings** — the most recent model and reasoning effort are shown to the
+  right of the session name. Hovering a row shows the usage history, call counts,
+  and AIU, including cases where the settings changed mid-session.
+- **Current session** — the session that opened this canvas is marked with a blue
+  background, a left border, and a `現在` (current) badge.
+- **Session hierarchy** — child sessions spawned via `create_session` are indented
+  under their parent. The `フォーカス` (focus) control on each row narrows the view
+  by making that session the root, whether or not it has children. The default root
+  is **the session that opened this canvas** (a single row if it has no children).
+  Use the breadcrumb to move back up. KPIs, the legend, and the time axis are all
+  recalculated for the currently displayed scope.
+- **`▾ N / ▸ N` in a row** — expands or collapses only that session's sub-agents.
+  The row itself has no click action, so it can't be confused with `フォーカス`.
+- `すべて折りたたむ / すべて展開` (collapse all / expand all): toggles sub-agent
+  visibility for every session at once.
+- **Sub-agent rows** — agent name on the left, work summary in the middle, model
+  and effort on the right.
+- **Hover** — shows duration, AIU, requests, tokens, and PR/issue references. For
+  sub-agents it also shows the task name and prompt summary captured at launch.
 
-## 操作
+## Controls
 
-- ステージのチップ: クリックで表示/非表示。
-- `圧縮 / 実時間`: 圧縮は 40 分以上の無活動区間を破線に畳んで密度を保つ。実時間は等速の時間軸。
-- `時系列 / 消費順`: 行の並び替え（時間軸は常に実時刻）。
-- `自動 OFF / 自動 ON · 30秒`: ON 時に即時更新し、以降は 30 秒間隔で更新する。既定は OFF。
-- `更新`: データ再読込。agent からは `refresh` action。`top_consumers` action で消費上位を取得できる。
+- Stage chips: click to show/hide that stage.
+- `圧縮 / 実時間` (compressed / real time): compression folds idle gaps of 40
+  minutes or more into a dashed segment to keep the density readable. Real time
+  uses a uniform time axis.
+- `時系列 / 消費順` (chronological / by consumption): reorders the rows. The time
+  axis always stays real time.
+- `自動 OFF / 自動 ON · 30秒` (auto-refresh off/on): turning it on refreshes
+  immediately, then every 30 seconds. Off by default.
+- `更新` (refresh): reloads the data. From an agent, use the `refresh` action. The
+  `top_consumers` action returns the top consumers.
+- **Timezone toggle**: click `JST 時点` in the header meta line to switch to UTC,
+  and click again to return to JST. No extra button is added — that single word in
+  the meta line is the toggle.
 
-## 時刻とステージ分類
+## Time and stage classification
 
-- 時刻表示はすべて **JST 固定**（`Asia/Tokyo`）。DB は UTC で持っているので、表示時にだけ変換する。
-  ホストが UTC で動いていても JST で出る。
-- ステージはセッション名からの**推定**であって、記録された事実ではない。判定順は
-  スキル名の完全一致（`increment-development` など）→ キーワード。誤分類はありうる。
-  ルールの正は `data.mjs` の `SKILL_STAGES` と `classifyStageDetail()`。
+- Wall-clock rendering can be **switched between JST (`Asia/Tokyo`) and UTC**, with
+  JST as the initial value. The database stores UTC; the conversion happens only at
+  render time, so JST is shown by default even when the host runs UTC.
+  Switching applies the same timezone to **every wall-clock display**: session
+  durations, tooltips, axis ticks, and the generation time. The choice is in-panel
+  UI state only and resets to JST on reload.
+- Stages are **inferred** from the session name; they are not a recorded fact. The
+  resolution order is an exact skill-name match (such as `increment-development`),
+  then keywords. Misclassification is possible. The authoritative rules are
+  `SKILL_STAGES` and `classifyStageDetail()` in `data.mjs`.
 
-## データ
+## Data
 
-`$COPILOT_HOME/session-store.db`（AIU・token・PR/Issue 参照）、`session-state/<id>/workspace.yaml`
-（名前・branch）、`session-state/<id>/events.jsonl`（サブエージェントの親子関係）、
-`$COPILOT_HOME/data.db` の `workspace_parent_links`（セッション同士の親子関係）。
-最後のものが読めない場合は階層表示を諦めてフラットに並べる。
-現在セッションの repository は `workspace.yaml` を優先し、セッションストアの古い値で
-ルートセッションが除外されないようにする。
-AIU = `SUM(total_nano_aiu) / 1,000,000,000` で、ローカル記録上のモデル使用量。
-premium request 枠や課金額ではない。セッション行の AIU は子エージェント分を含む内数。
+`$COPILOT_HOME/session-store.db` (AIU, tokens, PR/issue references),
+`session-state/<id>/workspace.yaml` (name, branch),
+`session-state/<id>/events.jsonl` (sub-agent parent/child relations), and
+`workspace_parent_links` in `$COPILOT_HOME/data.db` (session-to-session parentage).
+If that last one can't be read, the hierarchy is dropped and rows are shown flat.
+The repository of the current session is taken from `workspace.yaml` first, so a
+stale value in the session store doesn't exclude the root session.
+AIU = `SUM(total_nano_aiu) / 1,000,000,000`, i.e. model usage as recorded locally.
+It is not a premium-request quota or a billed amount. The AIU on a session row is
+inclusive of its child agents.
 
-**チャットウィンドウの「AI Credit」との差**: アプリ側の表示は `initiator = 'compaction'`
-（コンテキスト圧縮）の分を除外している。このキャンバスは全部を合計したうえで、
-ヘッダーとツールチップに「うち圧縮」を内数で出す。差分が出たらここを見れば説明できる。
+**Difference from "AI Credit" in the chat window**: the app's display excludes
+`initiator = 'compaction'` (context compaction). This canvas sums everything and
+breaks out the compaction portion ("うち圧縮") in the header and tooltips, so any
+discrepancy can be explained from here.
 
 ```text
 open_canvas({ canvasId: "credit-timeline", instanceId: "credit-timeline-1" })
 ```
 
-別リポジトリを見る場合は open input に `repository: "owner/repo"` を渡す。
+To look at another repository, pass `repository: "owner/repo"` in the open input.
 
 ## Privacy
 
