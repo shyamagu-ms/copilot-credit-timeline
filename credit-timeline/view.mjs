@@ -290,8 +290,9 @@ button:focus-visible,
 
 .grid {
     display: grid;
-    grid-template-columns: var(--timeline-label-width) 1fr var(--timeline-credit-width);
+    grid-template-columns: var(--timeline-label-width) minmax(0, 1fr) var(--timeline-credit-width);
     align-items: center;
+    min-width: 0;
 }
 
 .axis {
@@ -494,6 +495,7 @@ button:focus-visible,
     position: relative;
     height: 24px;
     overflow: hidden;
+    min-width: 0;
 }
 
 .bar {
@@ -523,6 +525,8 @@ button:focus-visible,
     align-items: center;
     gap: 8px;
     padding-left: 10px;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .cred i {
@@ -924,27 +928,37 @@ const JS = String.raw`
             segs.push([pts[0], pts[pts.length - 1]]);
         }
 
-        var avail = Math.max(60, width - (segs.length - 1) * GAP_PX);
-        var MINW = Math.min(14, avail / (segs.length * 2));
-        var slack = avail - segs.length * MINW;
+        var gapCount = Math.max(0, segs.length - 1);
+        /* Keep compressed idle gaps within 20% of the available track.
+           A fixed gap per segment eventually exceeded the grid on long histories. */
+        var gapWidth = gapCount
+            ? Math.min(GAP_PX, (width * 0.2) / gapCount)
+            : 0;
+        var avail = Math.max(1, width - gapCount * gapWidth);
+        var MINW = Math.min(14, avail / segs.length);
+        var slack = Math.max(0, avail - segs.length * MINW);
         var total = segs.reduce(function (a, s) { return a + Math.max(1, s[1] - s[0]); }, 0) || 1;
         var px = 0, breaks = [];
         segs.forEach(function (s, i) {
             s.px = px;
             s.w = MINW + (Math.max(1, s[1] - s[0]) / total) * slack;
             px += s.w;
-            if (i < segs.length - 1) { breaks.push(px + GAP_PX / 2); px += GAP_PX; }
+            if (i < segs.length - 1) {
+                breaks.push(px + gapWidth / 2);
+                px += gapWidth;
+            }
         });
 
         function x(t) {
             for (var i = 0; i < segs.length; i++) {
                 if (t <= segs[i][1]) {
                     if (t <= segs[i][0]) return segs[i].px;
-                    return segs[i].px + ((t - segs[i][0]) / (segs[i][1] - segs[i][0])) * segs[i].w;
+                    return Math.min(width, segs[i].px +
+                        ((t - segs[i][0]) / Math.max(1, segs[i][1] - segs[i][0])) * segs[i].w);
                 }
             }
             var last = segs[segs.length - 1];
-            return last.px + last.w;
+            return Math.min(width, last.px + last.w);
         }
         return { x: x, segs: segs, breaks: breaks, min: segs[0][0], max: segs[segs.length - 1][1] };
     }

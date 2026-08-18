@@ -566,6 +566,8 @@ test("rendered UI exposes all four explicit scope controls", () => {
     assert.match(html, /Current chat tree/);
     assert.match(html, /new EventSource\("\/events"\)/);
     assert.match(html, /id="connection-status"/);
+    assert.match(html, /grid-template-columns:[^;]+minmax\(0, 1fr\)/);
+    assert.match(html, /width \* 0\.2\) \/ gapCount/);
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
     assert.doesNotThrow(() => new Function(scripts.at(-1)[1]));
 });

@@ -62,7 +62,8 @@ Reload extensions in the GitHub Copilot app after installation.
 - Stage chips: click to show/hide that stage.
 - `圧縮 / 実時間` (compressed / real time): compression folds idle gaps of 40
   minutes or more into a dashed segment to keep the density readable. Real time
-  uses a uniform time axis.
+  uses a uniform time axis. When long histories create many compressed segments,
+  gap widths shrink to keep the timeline and AIU column inside the canvas.
 - `時系列 / 消費順` (chronological / by consumption): reorders the rows. The time
   axis always stays real time.
 - `自動 OFF / 自動 ON · 30秒` (auto-refresh off/on): turning it on refreshes

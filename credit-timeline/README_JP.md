@@ -51,6 +51,8 @@ Reload extensions in the GitHub Copilot app after installation.
   既定は current repository、repository 情報がない一般チャットの既定は current chat tree。
 - ステージのチップ: クリックで表示/非表示。
 - `圧縮 / 実時間`: 圧縮は 40 分以上の無活動区間を破線に畳んで密度を保つ。実時間は等速の時間軸。
+  長期間で区間数が増えた場合も、無活動ギャップ幅を表示領域に合わせて縮小し、時間列と AIU 列を
+  キャンバス内に収める。
 - `時系列 / 消費順`: 行の並び替え（時間軸は常に実時刻）。
 - `自動 OFF / 自動 ON · 30秒`: ON 時に即時更新し、以降は 30 秒間隔で更新する。既定は OFF。
 - `更新`: データ再読込。agent からは `refresh` action。`top_consumers` action で消費上位を取得できる。
