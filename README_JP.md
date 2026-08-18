@@ -45,7 +45,7 @@ Reload extensions in the GitHub Copilot app after installation.
 
 ## 操作
 
-- **スコープ切替** — `現在チャット` は現在セッションと app の親子リンクで確認できる配下を表示する。
+- **スコープ切替** — `現在チャット` は現在セッションと app に記録された creator/親リンクで確認できる配下を表示する。
   `リポジトリ` と `フォルダー` は一致する通常セッションを seed とし、子の worktree path や
   repository metadata が異なる場合も、確実な親子リンクがある全子孫を含める。`全セッション` は
   ローカルの全チャット・全プロジェクトセッションを明示的に表示する。プロジェクトセッションの
@@ -76,7 +76,9 @@ Reload extensions in the GitHub Copilot app after installation.
 最後のものが読めない場合は階層表示を諦めてフラットに並べる。
 repository、正規化したルートフォルダー、チャット階層は独立したフィルタとして扱う。repository は
 `workspace.yaml` を優先する。repository/folder の一致から seed を選び、current chat tree と同じく
-`workspace_parent_links` に記録された親子リンクだけで子孫を追加する。リンクを読めない場合は関係を推測しない。
+`coordinating_creator_session_id`、`creator_session_id`、`workspace_parent_links` の優先順で
+記録済みの関係だけを使って子孫を追加する。creator は workspace 行を持たない一般チャットでもよい。
+リンクを読めない場合は関係を推測しない。
 AIU = `SUM(total_nano_aiu) / 1,000,000,000` で、ローカル記録上のモデル使用量。
 premium request 枠や課金額ではない。セッション行の AIU は子エージェント分を含む内数。
 

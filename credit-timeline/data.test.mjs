@@ -8,11 +8,15 @@ import { DatabaseSync } from "node:sqlite";
 import {
     collectDashboard,
     normalizeRootFolder,
+    readSessionParents,
     resolveScope,
     SCOPES,
     sessionTreeIds,
 } from "./data.mjs";
 import { renderHtml } from "./view.mjs";
+
+const GENERAL_CHAT_ID = "7220b785-5119-4b30-b70e-cb2efa9cee97";
+const CREATED_SESSION_ID = "01efb092-8e38-4e6d-9632-d792d57dae0e";
 
 function createFixture() {
     const root = mkdtempSync(join(tmpdir(), "credit-timeline-"));
@@ -24,8 +28,8 @@ function createFixture() {
     mkdirSync(stateRoot);
 
     const sessions = [
-        ["chat-root", "", "General chat", folderRoot, "2026-01-01T00:00:00Z"],
-        ["chat-child", "", "Child chat", join(root, "worktrees", "chat-child"), "2026-01-01T01:00:00Z"],
+        [GENERAL_CHAT_ID, "", "General chat", folderRoot, "2026-01-01T00:00:00Z"],
+        [CREATED_SESSION_ID, "", "Child chat", join(root, "worktrees", "chat-child"), "2026-01-01T01:00:00Z"],
         ["chat-grandchild", "owner/repo-a", "Grandchild", join(root, "worktrees", "grandchild"), "2026-01-01T02:00:00Z"],
         ["folder-seed", "", "Same folder chat", `${folderRoot}${sep}`, "2026-01-02T00:00:00Z"],
         ["folder-child", "", "Folder child", join(root, "worktrees", "folder-child"), "2026-01-02T01:00:00Z"],
@@ -112,16 +116,24 @@ function createFixture() {
 
     const app = new DatabaseSync(appPath);
     app.exec(`
-        CREATE TABLE workspaces (id INTEGER PRIMARY KEY, session_id TEXT);
+        CREATE TABLE workspaces (
+            id INTEGER PRIMARY KEY,
+            session_id TEXT,
+            creator_session_id TEXT,
+            coordinating_creator_session_id TEXT
+        );
         CREATE TABLE workspace_parent_links (
             child_workspace_id INTEGER, parent_workspace_id INTEGER
         );
         INSERT INTO workspaces VALUES
-            (1, 'chat-root'), (2, 'chat-child'), (3, 'chat-grandchild'),
-            (4, 'folder-seed'), (5, 'folder-child'), (6, 'repo-only'),
-            (7, 'repo-child');
+            (2, '${CREATED_SESSION_ID}', '${GENERAL_CHAT_ID}', '${GENERAL_CHAT_ID}'),
+            (3, 'chat-grandchild', NULL, NULL),
+            (4, 'folder-seed', NULL, NULL),
+            (5, 'folder-child', 'folder-seed', NULL),
+            (6, 'repo-only', NULL, NULL),
+            (7, 'repo-child', 'repo-only', 'repo-only');
         INSERT INTO workspace_parent_links VALUES
-            (2, 1), (3, 2), (5, 4), (7, 6);
+            (3, 2);
     `);
     app.close();
 
@@ -152,7 +164,7 @@ test("scope resolution defaults by repository availability", () => {
         );
         assert.deepEqual(
             resolveScope({
-                sessionId: "chat-root",
+                sessionId: GENERAL_CHAT_ID,
                 stateRoot: fixture.stateRoot,
                 storePath: fixture.storePath,
             }),
@@ -165,7 +177,7 @@ test("scope resolution defaults by repository availability", () => {
         assert.equal(
             resolveScope({
                 requestedScope: SCOPES.ALL_SESSIONS,
-                sessionId: "chat-root",
+                sessionId: GENERAL_CHAT_ID,
                 stateRoot: fixture.stateRoot,
             }).type,
             SCOPES.ALL_SESSIONS,
@@ -173,7 +185,7 @@ test("scope resolution defaults by repository availability", () => {
         assert.deepEqual(
             resolveScope({
                 requestedScope: SCOPES.CURRENT_FOLDER,
-                sessionId: "chat-root",
+                sessionId: GENERAL_CHAT_ID,
                 stateRoot: fixture.stateRoot,
                 storePath: fixture.storePath,
             }),
@@ -187,7 +199,7 @@ test("scope resolution defaults by repository availability", () => {
             () =>
                 resolveScope({
                     requestedScope: SCOPES.CURRENT_REPOSITORY,
-                    sessionId: "chat-root",
+                    sessionId: GENERAL_CHAT_ID,
                     stateRoot: fixture.stateRoot,
                 }),
             /requires a repository/,
@@ -211,6 +223,33 @@ test("session tree expands multiple seeds without duplicates or guessed links", 
     );
 });
 
+test("recorded creator links use safe deterministic precedence", () => {
+    const fixture = createFixture();
+    try {
+        const app = new DatabaseSync(fixture.appPath);
+        app.exec(`
+            INSERT INTO workspaces VALUES
+                (8, 'precedence-child', 'creator-parent', 'coordinator-parent'),
+                (9, 'linked-parent', NULL, NULL),
+                (10, 'self-fallback', 'creator-parent', 'self-fallback');
+            INSERT INTO workspace_parent_links VALUES (8, 9);
+        `);
+        app.close();
+
+        const result = readSessionParents(fixture.appPath);
+        assert.equal(result.available, true);
+        assert.equal(result.parents[CREATED_SESSION_ID], GENERAL_CHAT_ID);
+        assert.equal(result.parents["chat-grandchild"], CREATED_SESSION_ID);
+        assert.equal(
+            result.parents["precedence-child"],
+            "coordinator-parent",
+        );
+        assert.equal(result.parents["self-fallback"], "creator-parent");
+    } finally {
+        fixture.cleanup();
+    }
+});
+
 test("folder normalization is idempotent and preserves filesystem roots", () => {
     const root = parse(process.cwd()).root;
     assert.equal(normalizeRootFolder(root), normalizeRootFolder(normalizeRootFolder(root)));
@@ -225,7 +264,7 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
     const fixture = createFixture();
     try {
         const common = {
-            currentSessionId: "chat-root",
+            currentSessionId: GENERAL_CHAT_ID,
             storePath: fixture.storePath,
             stateRoot: fixture.stateRoot,
             appPath: fixture.appPath,
@@ -239,10 +278,10 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
         assert.equal(chat.scope.type, SCOPES.CURRENT_CHAT_TREE);
         assert.deepEqual(
             chat.sessions.map((session) => session.id),
-            ["chat-root", "chat-child", "chat-grandchild"],
+            [GENERAL_CHAT_ID, CREATED_SESSION_ID, "chat-grandchild"],
         );
-        assert.equal(chat.sessions[1].parentId, "chat-root");
-        assert.equal(chat.sessions[2].parentId, "chat-child");
+        assert.equal(chat.sessions[1].parentId, GENERAL_CHAT_ID);
+        assert.equal(chat.sessions[2].parentId, CREATED_SESSION_ID);
 
         const chatWithoutLinks = collectDashboard({
             ...common,
@@ -252,7 +291,7 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
         });
         assert.deepEqual(
             chatWithoutLinks.sessions.map((session) => session.id),
-            ["chat-root"],
+            [GENERAL_CHAT_ID],
         );
         assert.equal(chatWithoutLinks.treeAvailable, false);
 
@@ -289,8 +328,8 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
         assert.deepEqual(
             folder.sessions.map((session) => session.id),
             [
-                "chat-root",
-                "chat-child",
+                GENERAL_CHAT_ID,
+                CREATED_SESSION_ID,
                 "chat-grandchild",
                 "folder-seed",
                 "folder-child",
@@ -322,7 +361,7 @@ test("rendered UI exposes all four explicit scope controls", () => {
         stages: [],
         totals: {},
         sessions: [],
-        currentSessionId: "chat-root",
+        currentSessionId: GENERAL_CHAT_ID,
         treeAvailable: true,
         availability: { status: "ready", message: "" },
     });

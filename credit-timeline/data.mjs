@@ -805,7 +805,7 @@ export function collectDashboard({
                 usage: storePath,
                 events: stateRoot,
                 aiuFormula: "SUM(total_nano_aiu) / 1,000,000,000",
-                note: "Sessions are selected by chat tree, repository, folder, or all-session scope. Repository and folder seeds include descendants from workspace parent links; task sub-agents are nested from lifecycle events.",
+                note: "Sessions are selected by chat tree, repository, folder, or all-session scope. Repository and folder seeds include descendants from recorded workspace creator and parent links; task sub-agents are nested from lifecycle events.",
             },
         };
         return dashboard;
@@ -822,26 +822,65 @@ export function collectDashboard({
 }
 
 /**
- * Session parent/child links, as recorded by the app when one session spawns
- * another (create_session / fork). Keyed by CLI session id. Missing or
- * unreadable app store is not an error: the timeline just stays flat.
+ * Session parent/child links recorded by the app when one session creates or
+ * coordinates another workspace. A workspace's coordinating creator is the
+ * strongest relation, followed by its creator and then its parent workspace.
+ * Creator session ids may refer to general chats with no workspace row.
  */
 export function readSessionParents(appPath = APP_STORE) {
     if (!existsSync(appPath)) return { parents: {}, available: false };
     let db;
     try {
         db = new DatabaseSync(appPath, { readOnly: true });
+        const workspaceColumns = new Set(
+            db.prepare("PRAGMA table_info(workspaces)")
+                .all()
+                .map((column) => column.name),
+        );
+        const hasParentLinks = Boolean(
+            db.prepare(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workspace_parent_links'",
+            ).get(),
+        );
+        const coordinatingColumn = workspaceColumns.has(
+            "coordinating_creator_session_id",
+        )
+            ? "w.coordinating_creator_session_id"
+            : "NULL";
+        const creatorColumn = workspaceColumns.has("creator_session_id")
+            ? "w.creator_session_id"
+            : "NULL";
+        const parentJoin = hasParentLinks
+            ? `LEFT JOIN workspace_parent_links l
+                   ON l.child_workspace_id = w.id
+               LEFT JOIN workspaces p ON p.id = l.parent_workspace_id`
+            : "";
+        const parentColumn = hasParentLinks ? "p.session_id" : "NULL";
         const rows = db
             .prepare(
-                `SELECT w.session_id AS child, p.session_id AS parent
+                `SELECT
+                     w.session_id AS child,
+                     ${coordinatingColumn} AS coordinating_parent,
+                     ${creatorColumn} AS creator_parent,
+                     ${parentColumn} AS linked_parent
                  FROM workspaces w
-                 JOIN workspace_parent_links l ON l.child_workspace_id = w.id
-                 JOIN workspaces p ON p.id = l.parent_workspace_id
-                 WHERE w.session_id IS NOT NULL AND p.session_id IS NOT NULL`,
+                 ${parentJoin}
+                 WHERE w.session_id IS NOT NULL`,
             )
             .all();
         const parents = {};
-        for (const row of rows) parents[row.child] = row.parent;
+        for (const row of rows) {
+            const child = safeText(row.child);
+            if (!child) continue;
+            const parent = [
+                row.coordinating_parent,
+                row.creator_parent,
+                row.linked_parent,
+            ]
+                .map(safeText)
+                .find((candidate) => candidate && candidate !== child);
+            if (parent) parents[child] = parent;
+        }
         return { parents, available: true };
     } catch {
         return { parents: {}, available: false };

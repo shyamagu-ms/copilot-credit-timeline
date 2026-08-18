@@ -53,7 +53,7 @@ Reload extensions in the GitHub Copilot app after installation.
 ## Controls
 
 - **Scope selector** — `現在チャット` shows the current session and descendants
-  linked through the app's workspace parent links; `リポジトリ` and `フォルダー`
+  linked through the app's recorded creator/parent links; `リポジトリ` and `フォルダー`
   use matching sessions as seeds and include every linked descendant, even when a
   child's worktree path or repository metadata differs. `全セッション` explicitly
   expands to every local chat and project session. The default is current repository
@@ -95,9 +95,11 @@ Reload extensions in the GitHub Copilot app after installation.
 If that last one can't be read, the hierarchy is dropped and rows are shown flat.
 Repository, normalized root folder, and chat hierarchy are independent filters.
 Repository metadata is read from `workspace.yaml` first. Repository/folder matching
-selects seed sessions, then adds descendants using only parent links recorded in
-`workspace_parent_links`. Chat-tree scope uses the same links from the current
-session. If links are unavailable, no relationships are guessed.
+selects seed sessions, then adds descendants using only recorded relationships:
+`coordinating_creator_session_id`, `creator_session_id`, then
+`workspace_parent_links` in that precedence order. Creator IDs may refer to a
+general chat with no workspace row. Chat-tree scope uses the same relationships
+from the current session. If links are unavailable, no relationships are guessed.
 AIU = `SUM(total_nano_aiu) / 1,000,000,000`, i.e. model usage as recorded locally.
 It is not a premium-request quota or a billed amount. The AIU on a session row is
 inclusive of its child agents.
