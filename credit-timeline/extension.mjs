@@ -15,7 +15,7 @@ const scopeSchema = {
     type: "string",
     enum: Object.values(SCOPES),
     description:
-        "current_chat_tree（現在チャットと配下）、current_repository（現在リポジトリ）、all_sessions（全セッション）。",
+        "current_chat_tree（現在チャットと配下）、current_repository（現在リポジトリと配下）、current_folder（現在フォルダーと配下）、all_sessions（全セッション）。",
 };
 
 function sendJson(res, statusCode, value) {
@@ -26,38 +26,54 @@ function sendJson(res, statusCode, value) {
     res.end(JSON.stringify(value));
 }
 
-function configureScope(entry, { requestedScope, requestedRepository } = {}) {
+function configureScope(
+    entry,
+    { requestedScope, requestedRepository, requestedFolder } = {},
+) {
     const resolved = resolveScope({
         requestedScope:
             requestedScope ??
             (requestedRepository
                 ? SCOPES.CURRENT_REPOSITORY
+                : requestedFolder
+                  ? SCOPES.CURRENT_FOLDER
                 : entry.scope),
         requestedRepository: requestedRepository ?? entry.repository,
+        requestedFolder: requestedFolder ?? entry.folder,
         sessionId: entry.sessionId,
     });
     entry.scope = resolved.type;
     entry.repository = resolved.repository;
+    entry.folder = resolved.folder;
 }
 
 function refresh(entry, options) {
     if (options) configureScope(entry, options);
     entry.data = collectDashboard({
         repository: entry.repository,
+        folder: entry.folder,
         currentSessionId: entry.sessionId,
         scope: entry.scope,
     });
     return entry.data;
 }
 
-async function startServer({ instanceId, repository, scope, sessionId }) {
+async function startServer({
+    instanceId,
+    repository,
+    folder,
+    scope,
+    sessionId,
+}) {
     const entry = {
         data: collectDashboard({
             repository,
+            folder,
             currentSessionId: sessionId,
             scope,
         }),
         repository,
+        folder,
         scope,
         sessionId,
         server: null,
@@ -149,6 +165,11 @@ const session = await joinSession({
                         description:
                             "owner/repository。current_repository の対象を明示する場合に指定します。",
                     },
+                    folder: {
+                        type: "string",
+                        description:
+                            "current_folder の対象ルートフォルダー。省略時は現在セッションから解決します。",
+                    },
                     scope: scopeSchema,
                 },
             },
@@ -162,6 +183,7 @@ const session = await joinSession({
                         additionalProperties: false,
                         properties: {
                             repository: { type: "string" },
+                            folder: { type: "string" },
                             scope: scopeSchema,
                         },
                     },
@@ -169,11 +191,13 @@ const session = await joinSession({
                         const data = refresh(requireInstance(ctx.instanceId), {
                             requestedScope: ctx.input?.scope,
                             requestedRepository: ctx.input?.repository,
+                            requestedFolder: ctx.input?.folder,
                         });
                         return {
                             refreshedAt: data.generatedAt,
                             scope: data.scope,
                             repository: data.repository,
+                            folder: data.folder,
                             sessions: data.totals.sessions,
                             aiu: data.totals.aiu,
                         };
@@ -188,6 +212,7 @@ const session = await joinSession({
                         additionalProperties: false,
                         properties: {
                             repository: { type: "string" },
+                            folder: { type: "string" },
                             scope: scopeSchema,
                             limit: {
                                 type: "integer",
@@ -199,16 +224,22 @@ const session = await joinSession({
                     },
                     handler: (ctx) => {
                         const entry = requireInstance(ctx.instanceId);
-                        if (ctx.input?.scope || ctx.input?.repository) {
+                        if (
+                            ctx.input?.scope ||
+                            ctx.input?.repository ||
+                            ctx.input?.folder
+                        ) {
                             refresh(entry, {
                                 requestedScope: ctx.input?.scope,
                                 requestedRepository: ctx.input?.repository,
+                                requestedFolder: ctx.input?.folder,
                             });
                         }
                         const limit = ctx.input?.limit ?? 10;
                         return {
                             scope: entry.data.scope,
                             repository: entry.data.repository,
+                            folder: entry.data.folder,
                             totalAiu: entry.data.totals.aiu,
                             sessions: [...entry.data.sessions]
                                 .sort((a, b) => b.aiu - a.aiu)
@@ -235,6 +266,7 @@ const session = await joinSession({
                 const resolved = resolveScope({
                     requestedScope: ctx.input?.scope,
                     requestedRepository: ctx.input?.repository,
+                    requestedFolder: ctx.input?.folder,
                     sessionId: ctx.sessionId,
                 });
                 let entry = instances.get(ctx.instanceId);
@@ -242,12 +274,14 @@ const session = await joinSession({
                     entry = await startServer({
                         instanceId: ctx.instanceId,
                         repository: resolved.repository,
+                        folder: resolved.folder,
                         scope: resolved.type,
                         sessionId: ctx.sessionId,
                     });
                 } else {
                     entry.sessionId = ctx.sessionId;
                     entry.repository = resolved.repository;
+                    entry.folder = resolved.folder;
                     entry.scope = resolved.type;
                     refresh(entry);
                 }
@@ -255,6 +289,8 @@ const session = await joinSession({
                 const scopeTitle =
                     entry.scope === SCOPES.CURRENT_REPOSITORY
                         ? `Repository: ${entry.repository}`
+                        : entry.scope === SCOPES.CURRENT_FOLDER
+                          ? `Folder: ${entry.folder}`
                         : entry.scope === SCOPES.ALL_SESSIONS
                           ? "All sessions"
                           : "Current chat tree";

@@ -671,6 +671,7 @@ const JS = String.raw`
     function scopeLabel() {
         var scope = state.data.scope || {};
         if (scope.type === "current_repository") return "リポジトリ全体";
+        if (scope.type === "current_folder") return "フォルダー全体";
         if (scope.type === "all_sessions") return "全セッション";
         return "現在チャット";
     }
@@ -687,6 +688,11 @@ const JS = String.raw`
         repositoryButton.title = state.data.repository
             ? "現在のリポジトリに属するセッションを表示"
             : "このチャットにはリポジトリ情報がありません";
+        var folderButton = document.querySelector('[data-scope="current_folder"]');
+        folderButton.disabled = !state.data.folder;
+        folderButton.title = state.data.folder
+            ? "現在のルートフォルダーに属するセッションを表示"
+            : "このチャットにはフォルダー情報がありません";
     }
     function num(v) {
         if (v >= 10000) return (v / 1000).toFixed(0) + "k";
@@ -1353,6 +1359,7 @@ export function renderHtml(data) {
         <div class="tog" id="scope-switch" aria-label="表示スコープ">
             <button data-scope="current_chat_tree">現在チャット</button>
             <button data-scope="current_repository">リポジトリ</button>
+            <button data-scope="current_folder">フォルダー</button>
             <button data-scope="all_sessions">全セッション</button>
         </div>
         <div class="tog">

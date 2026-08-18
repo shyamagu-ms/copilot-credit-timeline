@@ -45,10 +45,11 @@ Reload extensions in the GitHub Copilot app after installation.
 
 ## 操作
 
-- **スコープ切替** — `現在チャット` は現在セッションと app の親子リンクで確認できる配下、
-  `リポジトリ` は現在リポジトリ内、`全セッション` はローカルの全チャット・全プロジェクト
-  セッションを明示的に表示する。プロジェクトセッションの既定は current repository、
-  repository 情報がない一般チャットの既定は current chat tree。
+- **スコープ切替** — `現在チャット` は現在セッションと app の親子リンクで確認できる配下を表示する。
+  `リポジトリ` と `フォルダー` は一致する通常セッションを seed とし、子の worktree path や
+  repository metadata が異なる場合も、確実な親子リンクがある全子孫を含める。`全セッション` は
+  ローカルの全チャット・全プロジェクトセッションを明示的に表示する。プロジェクトセッションの
+  既定は current repository、repository 情報がない一般チャットの既定は current chat tree。
 - ステージのチップ: クリックで表示/非表示。
 - `圧縮 / 実時間`: 圧縮は 40 分以上の無活動区間を破線に畳んで密度を保つ。実時間は等速の時間軸。
 - `時系列 / 消費順`: 行の並び替え（時間軸は常に実時刻）。
@@ -73,9 +74,9 @@ Reload extensions in the GitHub Copilot app after installation.
 （名前・branch）、`session-state/<id>/events.jsonl`（サブエージェントの親子関係）、
 `$COPILOT_HOME/data.db` の `workspace_parent_links`（セッション同士の親子関係）。
 最後のものが読めない場合は階層表示を諦めてフラットに並べる。
-repository とチャット階層は独立したフィルタとして扱う。repository は `workspace.yaml` を優先する。
-current chat tree は `workspace_parent_links` に記録された親子リンクだけを使用し、リンクを読めない場合は
-関係を推測せず現在セッションだけを安全に表示する。
+repository、正規化したルートフォルダー、チャット階層は独立したフィルタとして扱う。repository は
+`workspace.yaml` を優先する。repository/folder の一致から seed を選び、current chat tree と同じく
+`workspace_parent_links` に記録された親子リンクだけで子孫を追加する。リンクを読めない場合は関係を推測しない。
 AIU = `SUM(total_nano_aiu) / 1,000,000,000` で、ローカル記録上のモデル使用量。
 premium request 枠や課金額ではない。セッション行の AIU は子エージェント分を含む内数。
 
@@ -87,9 +88,10 @@ premium request 枠や課金額ではない。セッション行の AIU は子�
 open_canvas({ canvasId: "credit-timeline", instanceId: "credit-timeline-1" })
 ```
 
-open input の `scope` には `current_chat_tree`、`current_repository`、`all_sessions` を指定できる。
+open input の `scope` には `current_chat_tree`、`current_repository`、`current_folder`、
+`all_sessions` を指定できる。
 別リポジトリを見る場合は `{ scope: "current_repository", repository: "owner/repo" }` を渡す。
-`refresh` と `top_consumers` actions も同じ任意の scope / repository を受け付ける。
+`refresh` と `top_consumers` actions も同じ任意の scope / repository / folder を受け付ける。
 
 ## Privacy
 

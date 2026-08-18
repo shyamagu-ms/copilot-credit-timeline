@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, normalize, parse, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 const COPILOT_HOME =
@@ -26,6 +26,7 @@ export const STAGES = [
 export const SCOPES = {
     CURRENT_CHAT_TREE: "current_chat_tree",
     CURRENT_REPOSITORY: "current_repository",
+    CURRENT_FOLDER: "current_folder",
     ALL_SESSIONS: "all_sessions",
 };
 
@@ -313,16 +314,57 @@ export function resolveRepository({
     return workspace.repository || "";
 }
 
+export function normalizeRootFolder(value) {
+    const folder = safeText(value);
+    if (!folder) return "";
+    const resolved = normalize(resolve(folder));
+    const normalized =
+        resolved === parse(resolved).root
+            ? resolved
+            : resolved.replace(/[\\/]+$/, "");
+    return process.platform === "win32"
+        ? normalized.toLowerCase()
+        : normalized;
+}
+
+export function resolveSessionFolder({
+    requestedFolder,
+    sessionId,
+    storePath = SESSION_STORE,
+}) {
+    if (safeText(requestedFolder)) {
+        return normalizeRootFolder(requestedFolder);
+    }
+    if (!safeText(sessionId) || !existsSync(storePath)) return "";
+    let db;
+    try {
+        db = new DatabaseSync(storePath, { readOnly: true });
+        const row = db
+            .prepare("SELECT cwd FROM sessions WHERE id = ?")
+            .get(sessionId);
+        return normalizeRootFolder(row?.cwd);
+    } finally {
+        db?.close();
+    }
+}
+
 export function resolveScope({
     requestedScope,
     requestedRepository,
+    requestedFolder,
     sessionId,
     stateRoot = SESSION_STATE,
+    storePath = SESSION_STORE,
 }) {
     const repository = resolveRepository({
         requestedRepository,
         sessionId,
         stateRoot,
+    });
+    const folder = resolveSessionFolder({
+        requestedFolder,
+        sessionId,
+        storePath,
     });
     const validScopes = new Set(Object.values(SCOPES));
     const scope = safeText(requestedScope);
@@ -339,13 +381,17 @@ export function resolveScope({
             "The current repository scope requires a repository.",
         );
     }
-    return { type, repository };
+    if (type === SCOPES.CURRENT_FOLDER && !folder) {
+        throw new Error("The current folder scope requires a folder.");
+    }
+    return { type, repository, folder };
 }
 
-export function sessionTreeIds(currentSessionId, parents) {
-    const root = safeText(currentSessionId);
-    if (!root) return [];
-    const included = new Set([root]);
+export function sessionTreeIds(seedSessionIds, parents) {
+    const seeds = Array.isArray(seedSessionIds)
+        ? seedSessionIds
+        : [seedSessionIds];
+    const included = new Set(seeds.map(safeText).filter(Boolean));
     let changed = true;
     while (changed) {
         changed = false;
@@ -359,12 +405,19 @@ export function sessionTreeIds(currentSessionId, parents) {
     return [...included];
 }
 
-function scopeMetadata(scope, repository, currentSessionId) {
+function scopeMetadata(scope, repository, folder, currentSessionId) {
     if (scope === SCOPES.CURRENT_REPOSITORY) {
         return {
             type: scope,
             label: "Current repository",
             detail: repository,
+        };
+    }
+    if (scope === SCOPES.CURRENT_FOLDER) {
+        return {
+            type: scope,
+            label: "Current folder",
+            detail: folder,
         };
     }
     if (scope === SCOPES.ALL_SESSIONS) {
@@ -383,16 +436,24 @@ function scopeMetadata(scope, repository, currentSessionId) {
 
 export function collectDashboard({
     repository,
+    folder,
     currentSessionId,
     scope = SCOPES.CURRENT_REPOSITORY,
     storePath = SESSION_STORE,
     stateRoot = SESSION_STATE,
     appPath = APP_STORE,
 }) {
-    const scopeInfo = scopeMetadata(scope, repository, currentSessionId);
+    const normalizedFolder = normalizeRootFolder(folder);
+    const scopeInfo = scopeMetadata(
+        scope,
+        repository,
+        normalizedFolder,
+        currentSessionId,
+    );
     if (!existsSync(storePath)) {
         return {
             repository: repository ?? "",
+            folder: normalizedFolder,
             scope: scopeInfo,
             generatedAt: new Date().toISOString(),
             stages: STAGES,
@@ -422,22 +483,7 @@ export function collectDashboard({
         transactionOpen = true;
         const includeCurrent = safeText(currentSessionId);
         const tree = readSessionParents(appPath);
-        const treeIds =
-            scope === SCOPES.CURRENT_CHAT_TREE
-                ? sessionTreeIds(includeCurrent, tree.parents)
-                : [];
-        let where = "";
-        let parameters = [];
-        if (scope === SCOPES.CURRENT_REPOSITORY) {
-            /* workspace.yaml is authoritative and can differ from the session
-               store for any session, so repository filtering happens after the
-               candidate rows are loaded. */
-        } else if (scope === SCOPES.CURRENT_CHAT_TREE) {
-            where = treeIds.length
-                ? `WHERE s.id IN (${placeholders(treeIds.length)})`
-                : "WHERE 0";
-            parameters = treeIds;
-        } else if (scope !== SCOPES.ALL_SESSIONS) {
+        if (!Object.values(SCOPES).includes(scope)) {
             throw new Error(`Unknown timeline scope: ${scope}`);
         }
         const candidateRows = db
@@ -462,11 +508,10 @@ export function collectDashboard({
                     MAX(u.created_at) AS usage_updated_at
                  FROM sessions s
                  LEFT JOIN assistant_usage_events u ON u.session_id = s.id
-                 ${where}
                  GROUP BY s.id
                  ORDER BY s.created_at`,
             )
-            .all(...parameters);
+            .all();
         const workspaceBySession = new Map();
         const workspaceFor = (sessionId) => {
             if (!workspaceBySession.has(sessionId)) {
@@ -477,11 +522,36 @@ export function collectDashboard({
             }
             return workspaceBySession.get(sessionId);
         };
-        const rows = candidateRows.filter((row) => {
-            if (scope !== SCOPES.CURRENT_REPOSITORY) return true;
-            const workspaceRepository = workspaceFor(row.id).repository;
-            return (workspaceRepository || row.repository) === repository;
-        });
+        let seedIds;
+        if (scope === SCOPES.CURRENT_CHAT_TREE) {
+            seedIds = includeCurrent ? [includeCurrent] : [];
+        } else if (scope === SCOPES.CURRENT_REPOSITORY) {
+            seedIds = candidateRows
+                .filter((row) => {
+                    const workspaceRepository =
+                        workspaceFor(row.id).repository;
+                    return (
+                        workspaceRepository || row.repository
+                    ) === repository;
+                })
+                .map((row) => row.id);
+        } else if (scope === SCOPES.CURRENT_FOLDER) {
+            seedIds = candidateRows
+                .filter(
+                    (row) =>
+                        normalizeRootFolder(row.cwd) === normalizedFolder,
+                )
+                .map((row) => row.id);
+        } else {
+            seedIds = candidateRows.map((row) => row.id);
+        }
+        const selectedIds =
+            scope === SCOPES.ALL_SESSIONS
+                ? new Set(seedIds)
+                : new Set(sessionTreeIds(seedIds, tree.parents));
+        const rows = candidateRows.filter((row) =>
+            selectedIds.has(row.id),
+        );
 
         const ids = rows.map((row) => row.id);
         const usageByAgent = new Map();
@@ -718,6 +788,7 @@ export function collectDashboard({
 
         const dashboard = {
             repository: repository ?? "",
+            folder: normalizedFolder,
             scope: scopeInfo,
             generatedAt: new Date().toISOString(),
             stages: STAGES,
@@ -734,7 +805,7 @@ export function collectDashboard({
                 usage: storePath,
                 events: stateRoot,
                 aiuFormula: "SUM(total_nano_aiu) / 1,000,000,000",
-                note: "Sessions are selected by chat tree, repository, or all-session scope. Session hierarchy comes from workspace parent links; task sub-agents are nested from lifecycle events.",
+                note: "Sessions are selected by chat tree, repository, folder, or all-session scope. Repository and folder seeds include descendants from workspace parent links; task sub-agents are nested from lifecycle events.",
             },
         };
         return dashboard;

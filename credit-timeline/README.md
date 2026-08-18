@@ -53,10 +53,12 @@ Reload extensions in the GitHub Copilot app after installation.
 ## Controls
 
 - **Scope selector** — `現在チャット` shows the current session and descendants
-  linked through the app's workspace parent links; `リポジトリ` shows sessions in
-  the current repository; `全セッション` explicitly expands to every local chat
-  and project session. The default is current repository for project sessions and
-  current chat tree for general chats without repository metadata.
+  linked through the app's workspace parent links; `リポジトリ` and `フォルダー`
+  use matching sessions as seeds and include every linked descendant, even when a
+  child's worktree path or repository metadata differs. `全セッション` explicitly
+  expands to every local chat and project session. The default is current repository
+  for project sessions and current chat tree for general chats without repository
+  metadata.
 - Stage chips: click to show/hide that stage.
 - `圧縮 / 実時間` (compressed / real time): compression folds idle gaps of 40
   minutes or more into a dashed segment to keep the density readable. Real time
@@ -91,10 +93,11 @@ Reload extensions in the GitHub Copilot app after installation.
 `session-state/<id>/events.jsonl` (sub-agent parent/child relations), and
 `workspace_parent_links` in `$COPILOT_HOME/data.db` (session-to-session parentage).
 If that last one can't be read, the hierarchy is dropped and rows are shown flat.
-Repository and chat hierarchy are independent filters. Repository metadata is read
-from `workspace.yaml` first. Chat-tree scope uses only parent links recorded in
-`workspace_parent_links`; if those links are unavailable, it safely shows just the
-current session instead of guessing relationships.
+Repository, normalized root folder, and chat hierarchy are independent filters.
+Repository metadata is read from `workspace.yaml` first. Repository/folder matching
+selects seed sessions, then adds descendants using only parent links recorded in
+`workspace_parent_links`. Chat-tree scope uses the same links from the current
+session. If links are unavailable, no relationships are guessed.
 AIU = `SUM(total_nano_aiu) / 1,000,000,000`, i.e. model usage as recorded locally.
 It is not a premium-request quota or a billed amount. The AIU on a session row is
 inclusive of its child agents.
@@ -109,9 +112,9 @@ open_canvas({ canvasId: "credit-timeline", instanceId: "credit-timeline-1" })
 ```
 
 The open input accepts `scope: "current_chat_tree" | "current_repository" |
-"all_sessions"`. To look at another repository, pass
+"current_folder" | "all_sessions"`. To look at another repository, pass
 `{ scope: "current_repository", repository: "owner/repo" }`. The `refresh` and
-`top_consumers` actions accept the same optional scope and repository fields.
+`top_consumers` actions accept the same optional scope, repository, and folder fields.
 
 ## Privacy
 
