@@ -1026,10 +1026,9 @@ const JS = String.raw`
        Gaps are detected from point events (session/agent starts and ends), not
        from merged spans: one long-running session must not keep an idle stretch
        open just because its bar crosses it. A session timestamp accompanied by
-       an uncompleted agent is only a fallback end; completed work or usage wins.
-       Active sessions alone may extend the domain to now. */
+       an uncompleted agent is only a fallback end; completed work or usage wins. */
     function buildScale(list, width) {
-        var starts = [], ends = [], fallbackEnds = [], running = false;
+        var starts = [], ends = [], fallbackEnds = [];
         function add(target, value) {
             var point = Date.parse(value);
             if (isFinite(point)) target.push(point);
@@ -1046,7 +1045,6 @@ const JS = String.raw`
                 ? fallbackEnds : ends, s.finishedAt);
             add(ends, s.usageUpdatedAt);
             addUsageEnds(ends, s.modelProfiles);
-            if (s.status === "active") running = true;
             s.agents.forEach(function (g) {
                 add(starts, g.startedAt);
                 add(ends, g.completedAt);
@@ -1061,7 +1059,6 @@ const JS = String.raw`
             : fallbackEnds.length
                 ? Math.max.apply(null, fallbackEnds)
                 : Math.max.apply(null, starts);
-        if (running) domainMax = Math.max(domainMax, Date.now());
         var pts = starts.concat(ends, fallbackEnds).filter(function (point) { return point <= domainMax; });
         pts.push(domainMax);
         pts.sort(function (x, y) { return x - y; });

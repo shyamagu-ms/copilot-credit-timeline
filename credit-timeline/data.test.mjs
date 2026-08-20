@@ -590,6 +590,7 @@ test("rendered UI exposes all four explicit scope controls", () => {
     assert.match(html, /max-width: 100%/);
     assert.match(html, /var width = Math\.max\(1, timeline\.clientWidth\)/);
     assert.match(html, /width \* 0\.2\) \/ gapCount/);
+    assert.doesNotMatch(html, /domainMax\s*=\s*Math\.max\(domainMax,\s*Date\.now\(\)\)/);
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
     assert.doesNotThrow(() => new Function(scripts.at(-1)[1]));
 });
