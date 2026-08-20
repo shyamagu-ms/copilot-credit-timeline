@@ -756,7 +756,7 @@ button:focus-visible,
         --timeline-credit-width: 88px;
     }
     .g {
-        grid-template-columns: 70px minmax(0, 1fr) minmax(0, 96px) auto;
+        grid-template-columns: 70px minmax(0, 1fr) auto auto;
     }
     .kpis { gap: 16px; }
 }
@@ -778,7 +778,7 @@ button:focus-visible,
     }
     .kpi b { font-size: 18px; }
     .g {
-        grid-template-columns: minmax(0, 1fr) minmax(0, 72px) auto;
+        grid-template-columns: minmax(0, 1fr) auto auto;
         padding-right: 6px;
     }
     .g s { display: none; }
@@ -967,7 +967,7 @@ const JS = String.raw`
     function tzfmt() {
         if (!TZFMTS[state.tz]) {
             TZFMTS[state.tz] = new Intl.DateTimeFormat("en-GB", {
-                timeZone: state.tz, month: "2-digit", day: "2-digit",
+                timeZone: state.tz, year: "numeric", month: "2-digit", day: "2-digit",
                 hour: "2-digit", minute: "2-digit", hour12: false
             });
         }
@@ -984,6 +984,41 @@ const JS = String.raw`
         var p = tparts(iso);
         if (!p) return "-";
         return p.month + "/" + p.day + " " + p.hour + ":" + p.minute;
+    }
+    function sameDay(a, b) {
+        return a && b && a.year === b.year &&
+            a.month === b.month && a.day === b.day;
+    }
+    function tickLabelsOverlap(a, b) {
+        return a.left < b.right + 8 && a.right + 8 > b.left;
+    }
+    function pruneTickLabels(host) {
+        var start = host.querySelector('[data-edge="start"]');
+        var end = host.querySelector('[data-edge="end"]');
+        var protectedRects = [];
+        if (end) protectedRects.push(end.getBoundingClientRect());
+        if (start) {
+            var startRect = start.getBoundingClientRect();
+            if (protectedRects.some(function (rect) {
+                return tickLabelsOverlap(startRect, rect);
+            })) {
+                start.hidden = true;
+            } else {
+                protectedRects.push(startRect);
+            }
+        }
+        var previous = null;
+        [].forEach.call(host.querySelectorAll(".mid-label"), function (label) {
+            var rect = label.getBoundingClientRect();
+            var collides = protectedRects.some(function (edgeRect) {
+                return tickLabelsOverlap(rect, edgeRect);
+            }) || (previous && tickLabelsOverlap(rect, previous));
+            if (collides) {
+                label.hidden = true;
+            } else {
+                previous = rect;
+            }
+        });
     }
 
     /* ---- session tree ---------------------------------------------------
@@ -1325,26 +1360,27 @@ const JS = String.raw`
         var flowScale = buildScale(list, flowWidth);
         flowHost.innerHTML = flow(list, flowScale, flowWidth);
 
-        var last = scale.segs.length ? 0 : -999;
+        var start = scale.segs.length ? tparts(scale.min) : null;
+        var end = scale.segs.length ? tparts(scale.max) : null;
+        var shortMids = sameDay(start, end);
         var ticks = scale.segs.map(function (sg) {
             if (sg[0] === scale.min || sg[0] === scale.max) return "";
-            if (sg.px - last < 52) return "";
-            last = sg.px;
             var p = tparts(sg[0]);
-            return '<span class="mid-label" style="left:' + sg.px.toFixed(1) + 'px">' + p.month + "/" + p.day +
-                " " + p.hour + ":" + p.minute + "</span>";
+            var label = shortMids
+                ? p.hour + ":" + p.minute
+                : p.month + "/" + p.day + " " + p.hour + ":" + p.minute;
+            return '<span class="mid-label" style="left:' + sg.px.toFixed(1) + 'px">' + label + "</span>";
         }).join("");
         if (scale.segs.length) {
-            var start = tparts(scale.min);
-            var end = tparts(scale.max);
-            ticks = '<span class="edge-label" style="left:0px">' +
+            ticks = '<span class="edge-label" data-edge="start" style="left:0px">' +
                 start.month + "/" + start.day + " " + start.hour + ":" + start.minute +
                 "</span>" + ticks +
-                '<span class="edge-label" style="left:' + width.toFixed(1) +
+                '<span class="edge-label" data-edge="end" style="left:' + width.toFixed(1) +
                 'px">' + end.month + "/" + end.day +
                 " " + end.hour + ":" + end.minute + "</span>";
         }
         el("ticks").innerHTML = ticks;
+        pruneTickLabels(el("ticks"));
 
         /* rows */
         var html = nodes.map(function (n) {

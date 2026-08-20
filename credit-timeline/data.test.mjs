@@ -591,12 +591,17 @@ test("rendered UI exposes all four explicit scope controls", () => {
     assert.match(html, /container-type: inline-size/);
     assert.match(html, /class="model"/);
     assert.match(html, /class="effort"/);
+    assert.doesNotMatch(html, /minmax\(0, (?:72|96)px\)/);
     assert.doesNotMatch(html, /\.g \.run \{ display: none; \}/);
     assert.doesNotMatch(html, /current-badge/);
     assert.doesNotMatch(html, /Focus<\/button>/);
     assert.doesNotMatch(html, /ICONS\.focus/);
     assert.match(html, /tabindex="0" role="group"/);
     assert.match(html, /document\.addEventListener\("keydown"/);
+    assert.match(html, /function pruneTickLabels\(host\)/);
+    assert.match(html, /getBoundingClientRect\(\)/);
+    assert.match(html, /data-edge="start"/);
+    assert.match(html, /data-edge="end"/);
     assert.match(html, /var width = Math\.max\(1, timeline\.clientWidth\)/);
     assert.match(html, /width \* 0\.2\) \/ gapCount/);
     assert.doesNotMatch(html, /domainMax\s*=\s*Math\.max\(domainMax,\s*Date\.now\(\)\)/);
