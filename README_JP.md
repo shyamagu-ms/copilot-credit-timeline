@@ -73,9 +73,11 @@ Reload extensions in the GitHub Copilot app after installation.
   終端は完了時刻と確認済みの usage 活動を優先し、実行中のセッションだけ現在時刻まで延長する。
   時間トラックの両端を実線レールで示し、開始・終了ラベルはレール上に中央揃えの太字で表示する。
   破線は圧縮された無活動区間を示す。
-- ステージはセッション名からの**推定**であって、記録された事実ではない。判定順は
-  スキル名の完全一致（`increment-development` など）→ キーワード。誤分類はありうる。
-  ルールの正は `data.mjs` の `SKILL_STAGES` と `classifyStageDetail()`。
+- ステージはセッション名からの**推定**であって、記録された事実ではない。Scrum のスキル名と
+  Scrum キーワードを最優先し、Product Goal から Retrospective までの既存分類を維持する。
+  Scrum に該当しない場合は Research、Design、Implementation、Testing、Debugging、
+  Documentation、Maintenance、Feedback、Tooling へ分類し、該当しなければ Other とする。
+  誤分類はありうる。ルールの正は `data.mjs` の `SKILL_STAGES` と `classifyStageDetail()`。
 
 ## データ
 

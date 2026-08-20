@@ -795,6 +795,13 @@ const JS = String.raw`
         gate: "#c58af9",
         review: "#ff9a62",
         retro: "#f2749b",
+        research: "#58a6ff",
+        design: "#bc8cff",
+        implementation: "#56d364",
+        testing: "#d2a8ff",
+        debugging: "#ff7b72",
+        documentation: "#79c0ff",
+        maintenance: "#d29922",
         feedback: "#4fd8e8",
         tooling: "#9aa7ff",
         other: "#8b95a5"
@@ -808,6 +815,13 @@ const JS = String.raw`
         gate: "DoD Gate",
         review: "Review",
         retro: "Retro",
+        research: "Research",
+        design: "Design",
+        implementation: "Implement",
+        testing: "Testing",
+        debugging: "Debug",
+        documentation: "Docs",
+        maintenance: "Maintain",
         feedback: "Feedback",
         tooling: "Tooling",
         other: "Other"
@@ -1637,12 +1651,12 @@ const JS = String.raw`
             try {
                 state.data = JSON.parse(event.data);
                 render();
-                setConnection("live", "Live");
+                setConnection("live", "Connected");
             } catch (error) {
                 setConnection("error", "Failed to load update");
             }
         });
-        events.onopen = function () { setConnection("live", "Live"); };
+        events.onopen = function () { setConnection("live", "Connected"); };
         events.onerror = function () { setConnection("busy", "Reconnecting…"); };
     }
 

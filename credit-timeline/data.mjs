@@ -18,9 +18,16 @@ export const STAGES = [
     { id: "gate", label: "DoD Gate", order: 60 },
     { id: "review", label: "Review", order: 70 },
     { id: "retro", label: "Retrospective", order: 80 },
-    { id: "feedback", label: "Feedback", order: 90 },
-    { id: "tooling", label: "Tooling", order: 95 },
-    { id: "other", label: "Other", order: 100 },
+    { id: "research", label: "Research", order: 90 },
+    { id: "design", label: "Design", order: 100 },
+    { id: "implementation", label: "Implementation", order: 110 },
+    { id: "testing", label: "Testing", order: 120 },
+    { id: "debugging", label: "Debugging", order: 130 },
+    { id: "documentation", label: "Documentation", order: 140 },
+    { id: "maintenance", label: "Maintenance", order: 150 },
+    { id: "feedback", label: "Feedback", order: 160 },
+    { id: "tooling", label: "Tooling", order: 170 },
+    { id: "other", label: "Other", order: 180 },
 ];
 
 export const SCOPES = {
@@ -63,7 +70,7 @@ export function classifyStageDetail(value) {
     if (skill) return { stage: skill.stage, confidence: "exact" };
 
     const lead = text.slice(0, 140);
-    const rules = [
+    const scrumRules = [
         [
             "gate",
             /final[- ]?dod|dod[- ]?gate|最終.*ゲート|受入.*ゲート/,
@@ -80,21 +87,54 @@ export function classifyStageDetail(value) {
             /pbi[- ]?registration|backlog[- ]?refinement|バックログ|pbi登録/,
         ],
         ["goal", /product[- ]?goal|プロダクトゴール/],
+        ["development", /increment[- ]?development/],
+    ];
+    const scrumStage = scrumRules.find(([, pattern]) =>
+        pattern.test(lead),
+    )?.[0];
+    if (scrumStage) return { stage: scrumStage, confidence: "inferred" };
+
+    const activityRules = [
+        [
+            "debugging",
+            /\bdebug(?:ging)?\b|\bbug(?:fix)?\b|\berrors?\b|\bfail(?:ures?|ing)?\b|\bfix(?:ing)?\b|\btroubleshoot(?:ing)?\b|障害|不具合|エラー|修正|原因調査/,
+        ],
+        [
+            "testing",
+            /\btests?\b|\btesting\b|\bvalidation\b|\bverif(?:y|ication)\b|テスト|試験|動作確認|品質確認/,
+        ],
+        [
+            "research",
+            /\bresearch\b|\binvestigat(?:e|ion|ing)\b|\bexplor(?:e|ation)\b|\baudit\b|調査|検証|分析/,
+        ],
+        [
+            "design",
+            /\bdesign\b|\barchitecture\b|\barchitectural\b|\bproposal\b|設計|アーキテクチャ|構成検討/,
+        ],
+        [
+            "documentation",
+            /\bdocs?\b|\breadme\b|\bdocumentation\b|\bguide\b|ドキュメント|文書|手順書/,
+        ],
+        [
+            "maintenance",
+            /\brefactor(?:ing)?\b|\bdependenc(?:y|ies)\b|\bupgrade\b|\bmigrat(?:e|ion)\b|\bcleanup\b|\bchore\b|リファクタ|依存関係|更新|移行|整理/,
+        ],
         [
             "feedback",
-            /feedback|フィードバック|テンプレート検証|総括/,
+            /\bfeedback\b|\breview comments?\b|フィードバック|レビューコメント|総括/,
         ],
         [
             "tooling",
-            /canvas|キャンバス|extension|拡張機能|ツール整備|\.github\//,
+            /\bcanvas\b|\bextension\b|\btooling\b|\bci\/cd\b|\bworkflow\b|キャンバス|拡張機能|ツール整備|\.github\//,
         ],
         [
-            "development",
-            /increment[- ]?development|issue\s*#?\d+|実装|開発|fix|feat/,
+            "implementation",
+            /\bimplement(?:ation|ing)?\b|\bfeature\b|\bfeat\b|\bissue\s*#?\d+\b|\badd(?:ing)?\b|\bcreate\b|実装|開発|機能追加|作成/,
         ],
     ];
     const stage =
-        rules.find(([, pattern]) => pattern.test(lead))?.[0] ?? "other";
+        activityRules.find(([, pattern]) => pattern.test(lead))?.[0] ??
+        "other";
     return { stage, confidence: "inferred" };
 }
 
@@ -288,12 +328,12 @@ function statusFromEvents(events) {
     return age < 15 * 60 * 1000 ? "active" : "inactive";
 }
 
-function isTerminalWithoutUsage(row, events) {
-    return (
-        events.lastLifecycleType === "session.shutdown" &&
-        Number(row.nano_aiu) === 0 &&
-        Number(row.requests) === 0
-    );
+function isInactiveWithoutUsage(row, events, currentSessionId) {
+    if (Number(row.nano_aiu) !== 0 || Number(row.requests) !== 0) {
+        return false;
+    }
+    if (row.id === currentSessionId) return false;
+    return statusFromEvents(events) !== "active";
 }
 
 function isUntitledWithoutUsage(row, workspace, events) {
@@ -645,9 +685,10 @@ export function collectDashboard({
         }
         const rows = candidateRows.filter((row) => {
             if (!selectedIds.has(row.id)) return false;
-            if (scope === SCOPES.CURRENT_CHAT_TREE) return true;
             const events = eventsFor(row.id);
-            if (isTerminalWithoutUsage(row, events)) return false;
+            if (isInactiveWithoutUsage(row, events, currentSessionId)) {
+                return false;
+            }
             return !isUntitledWithoutUsage(
                 row,
                 workspaceFor(row.id),

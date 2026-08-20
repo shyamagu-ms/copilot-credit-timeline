@@ -6,6 +6,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 
 import {
+    classifyStageDetail,
     collectDashboard,
     normalizeRootFolder,
     readSessionParents,
@@ -18,6 +19,24 @@ import { renderHtml } from "./view.mjs";
 
 const GENERAL_CHAT_ID = "7220b785-5119-4b30-b70e-cb2efa9cee97";
 const CREATED_SESSION_ID = "01efb092-8e38-4e6d-9632-d792d57dae0e";
+
+test("stage classification preserves Scrum before general activities", () => {
+    assert.deepEqual(classifyStageDetail("increment-development debugging"), {
+        stage: "development",
+        confidence: "exact",
+    });
+    assert.equal(classifyStageDetail("Sprint review feedback").stage, "review");
+    assert.equal(classifyStageDetail("Investigate login failures").stage, "debugging");
+    assert.equal(classifyStageDetail("Research caching options").stage, "research");
+    assert.equal(classifyStageDetail("Architecture design").stage, "design");
+    assert.equal(classifyStageDetail("Implement account settings").stage, "implementation");
+    assert.equal(classifyStageDetail("Run validation tests").stage, "testing");
+    assert.equal(classifyStageDetail("Update README docs").stage, "documentation");
+    assert.equal(classifyStageDetail("Dependency upgrade").stage, "maintenance");
+    assert.equal(classifyStageDetail("Review comments feedback").stage, "feedback");
+    assert.equal(classifyStageDetail("Canvas extension tooling").stage, "tooling");
+    assert.equal(classifyStageDetail("Discuss next steps").stage, "other");
+});
 
 function createFixture() {
     const root = mkdtempSync(join(tmpdir(), "credit-timeline-"));
@@ -113,7 +132,7 @@ function createFixture() {
                 join(sessionDir, "events.jsonl"),
                 JSON.stringify({
                     type: lifecycle.type,
-                    timestamp: createdAt,
+                    timestamp: lifecycle.timestamp ?? createdAt,
                     data: lifecycle.data ?? {},
                 }),
             );
@@ -138,7 +157,10 @@ function createFixture() {
     addLifecycleSession({
         id: "running-zero",
         summary: "Running zero",
-        lifecycle: { type: "session.start" },
+        lifecycle: {
+            type: "session.start",
+            timestamp: new Date().toISOString(),
+        },
     });
     addLifecycleSession({
         id: "unknown-zero",
@@ -166,7 +188,10 @@ function createFixture() {
         repository: "",
         summary: "Visible descendant",
         cwd: join(root, "worktrees", "visible-descendant"),
-        lifecycle: { type: "session.start" },
+        lifecycle: {
+            type: "session.start",
+            timestamp: new Date().toISOString(),
+        },
     });
     addLifecycleSession({
         id: "chat-zero",
@@ -393,12 +418,10 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
                 GENERAL_CHAT_ID,
                 CREATED_SESSION_ID,
                 "chat-grandchild",
-                "chat-zero",
             ],
         );
         assert.equal(chat.sessions[1].parentId, GENERAL_CHAT_ID);
         assert.equal(chat.sessions[2].parentId, CREATED_SESSION_ID);
-        assert.equal(chat.sessions[3].parentId, GENERAL_CHAT_ID);
         const terminalChatRoot = collectDashboard({
             ...common,
             currentSessionId: "completed-zero",
@@ -438,7 +461,6 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
                 "repo-only",
                 "repo-child",
                 "running-zero",
-                "unknown-zero",
                 "visible-descendant",
             ].sort(),
         );
@@ -460,7 +482,7 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
             ).parentId,
             "",
         );
-        assert.equal(repository.totals.sessions, 8);
+        assert.equal(repository.totals.sessions, 7);
         assert.equal(repository.totals.agents, 1);
         assert.equal(repository.totals.aiu, 18.5);
         assert.equal(repository.totals.requests, 6);
@@ -482,11 +504,10 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
                 "folder-seed",
                 "folder-child",
                 "running-zero",
-                "unknown-zero",
                 "visible-descendant",
             ].sort(),
         );
-        assert.equal(folder.totals.sessions, 10);
+        assert.equal(folder.totals.sessions, 9);
         assert.equal(
             folder.sessions.some((session) => session.id === "untitled-zero"),
             false,
@@ -504,7 +525,7 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
             repository: "",
         });
         assert.equal(all.scope.type, SCOPES.ALL_SESSIONS);
-        assert.equal(all.sessions.length, 12);
+        assert.equal(all.sessions.length, 11);
         assert.equal(
             all.sessions.some((session) => session.id === "untitled-zero"),
             false,
@@ -514,7 +535,6 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
                 .filter((session) =>
                     [
                         "running-zero",
-                        "unknown-zero",
                         "completed-aiu",
                         "completed-requests",
                     ].includes(session.id),
@@ -523,7 +543,6 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
                 .sort(),
             [
                 "running-zero",
-                "unknown-zero",
                 "completed-aiu",
                 "completed-requests",
             ].sort(),

@@ -92,10 +92,12 @@ Reload extensions in the GitHub Copilot app after installation.
   only an actively running session extends to the current time. Solid rails mark
   both ends of the track, with bold centered start/end labels; dashed lines mark
   compressed idle gaps.
-- Stages are **inferred** from the session name; they are not a recorded fact. The
-  resolution order is an exact skill-name match (such as `increment-development`),
-  then keywords. Misclassification is possible. The authoritative rules are
-  `SKILL_STAGES` and `classifyStageDetail()` in `data.mjs`.
+- Stages are **inferred** from the session name; they are not a recorded fact.
+  Scrum skill names and Scrum keywords take priority, preserving Product Goal
+  through Retrospective. Non-Scrum sessions then fall back to Research, Design,
+  Implementation, Testing, Debugging, Documentation, Maintenance, Feedback, or
+  Tooling; unmatched work is Other. Misclassification is possible. The
+  authoritative rules are `SKILL_STAGES` and `classifyStageDetail()` in `data.mjs`.
 
 ## Data
 
