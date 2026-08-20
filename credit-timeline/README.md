@@ -35,16 +35,16 @@ Reload extensions in the GitHub Copilot app after installation.
   right of the session name. Hovering a row shows the usage history, call counts,
   and AIU, including cases where the settings changed mid-session.
 - **Current session** — the session that opened this canvas is marked with a blue
-  background, a left border, and a `現在` (current) badge.
+  background, a left border, and a `Now` (current session) badge.
 - **Session hierarchy** — child sessions spawned via `create_session` are indented
-  under their parent. The `フォーカス` (focus) control on each row narrows the view
+  under their parent. The `Focus` control on each row narrows the view
   by making that session the root, whether or not it has children. The default root
   is **the session that opened this canvas** (a single row if it has no children).
   Use the breadcrumb to move back up. KPIs, the legend, and the time axis are all
   recalculated for the currently displayed scope.
-- **`▾ N / ▸ N` in a row** — expands or collapses only that session's sub-agents.
-  The row itself has no click action, so it can't be confused with `フォーカス`.
-- `すべて折りたたむ / すべて展開` (collapse all / expand all): toggles sub-agent
+- **`chevron + N` in a row** — expands or collapses only that session's sub-agents.
+  The row itself has no click action, so it can't be confused with `Focus`.
+- **Collapse all / expand all** (chevron icon button): toggles sub-agent
   visibility for every session at once.
 - **Sub-agent rows** — agent name on the left, work summary in the middle, model
   and effort on the right.
@@ -53,28 +53,35 @@ Reload extensions in the GitHub Copilot app after installation.
 
 ## Controls
 
+- **Icon-first chrome** — controls use icons plus a short English word, so the UI
+  reads the same in any language. Icon-only controls (refresh, collapse/expand all,
+  row chevrons) always carry an English `title` and `aria-label`.
 - Stage chips: click to show/hide that stage.
-- `圧縮 / 実時間` (compressed / real time): compression folds idle gaps of 40
+- `Compress / Real` (compressed / real time): compression folds idle gaps of 40
   minutes or more into a dashed segment to keep the density readable. Real time
   uses a uniform time axis.
-- `時系列 / 消費順` (chronological / by consumption): reorders the rows. The time
+- `Time / Credits` (chronological / by consumption): reorders the rows. The time
   axis always stays real time.
-- `自動 OFF / 自動 ON · 30秒` (auto-refresh off/on): turning it on refreshes
+- `Auto / Auto 30s` (auto-refresh off/on): turning it on refreshes
   immediately, then every 30 seconds. Off by default.
-- `更新` (refresh): reloads the data. From an agent, use the `refresh` action. The
+- **Refresh** (circular-arrow icon button): reloads the data. From an agent, use the `refresh` action. The
   `top_consumers` action returns the top consumers.
-- **Timezone toggle**: click `JST 時点` in the header meta line to switch to UTC,
-  and click again to return to JST. No extra button is added — that single word in
-  the meta line is the toggle.
+- **Timezone toggle**: the header meta line shows the local timezone's short name.
+  Click it to switch to UTC, then click again to return to local time. No extra
+  button is added — that short name is the toggle.
 
 ## Time and stage classification
 
-- Wall-clock rendering can be **switched between JST (`Asia/Tokyo`) and UTC**, with
-  JST as the initial value. The database stores UTC; the conversion happens only at
-  render time, so JST is shown by default even when the host runs UTC.
+- Wall-clock rendering defaults to the **browser/host local IANA timezone** and can
+  be switched to UTC. The database stores UTC; conversion happens only at render time.
   Switching applies the same timezone to **every wall-clock display**: session
   durations, tooltips, axis ticks, and the generation time. The choice is in-panel
-  UI state only and resets to JST on reload.
+  UI state only and resets to local time on reload.
+- The timeline and overview run from the first event to the last event in the loaded
+  data. The end prefers finished/completed timestamps and observed usage activity;
+  only an actively running session extends to the current time. Solid rails mark
+  both ends of the track, with bold centered start/end labels; dashed lines mark
+  compressed idle gaps.
 - Stages are **inferred** from the session name; they are not a recorded fact. The
   resolution order is an exact skill-name match (such as `increment-development`),
   then keywords. Misclassification is possible. The authoritative rules are
@@ -95,7 +102,7 @@ inclusive of its child agents.
 
 **Difference from "AI Credit" in the chat window**: the app's display excludes
 `initiator = 'compaction'` (context compaction). This canvas sums everything and
-breaks out the compaction portion ("うち圧縮") in the header and tooltips, so any
+breaks out the compaction portion ("compaction") in the header and tooltips, so any
 discrepancy can be explained from here.
 
 ```text

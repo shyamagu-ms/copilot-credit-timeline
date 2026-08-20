@@ -330,7 +330,7 @@ export function collectDashboard({
                 status: "empty",
                 code: "session_store_missing",
                 message:
-                    "Copilotのセッションデータはまだ作成されていません。セッション利用後に「最新に更新」してください。",
+                    "No Copilot session data yet. Use a session, then hit Refresh.",
             },
             source: {
                 usage: storePath,

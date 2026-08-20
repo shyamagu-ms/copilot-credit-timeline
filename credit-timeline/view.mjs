@@ -1,3 +1,25 @@
+/* Language-neutral iconography: inline SVG so it inherits the canvas theme
+   colour. Every icon-only control still carries an English title/aria-label. */
+function icon(body, extraClass) {
+    return '<svg class="ico' + (extraClass ? " " + extraClass : "") +
+        '" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor"' +
+        ' stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"' +
+        ' aria-hidden="true" focusable="false">' + body + "</svg>";
+}
+
+const ICONS = {
+    refresh: icon('<path d="M13.5 8a5.5 5.5 0 1 1-1.7-3.9"/><path d="M13.8 1.9v3.2h-3.2"/>'),
+    clock: icon('<circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.3 1.5"/>'),
+    compress: icon('<path d="M2 3v10"/><path d="M14 3v10"/><path d="M6.2 5.6 4 8l2.2 2.4"/><path d="M9.8 5.6 12 8l-2.2 2.4"/><path d="M4.6 8h6.8"/>'),
+    realtime: icon('<path d="M2 8h12"/><path d="M4.5 5v6"/><path d="M8 5v6"/><path d="M11.5 5v6"/>'),
+    credits: icon('<path d="M3.5 13V9"/><path d="M8 13V6"/><path d="M12.5 13V3.5"/>'),
+    collapseAll: icon('<path d="M4 9.5 8 5.5l4 4"/>'),
+    expandAll: icon('<path d="M4 6.5 8 10.5l4-4"/>'),
+    chevronDown: icon('<path d="M4 6.5 8 10.5l4-4"/>', "chev"),
+    chevronRight: icon('<path d="M6.5 3.5 10.5 8l-4 4.5"/>', "chev"),
+    focus: icon('<circle cx="8" cy="8" r="3.1"/><path d="M8 1.4v2.2"/><path d="M8 12.4v2.2"/><path d="M1.4 8h2.2"/><path d="M12.4 8h2.2"/>'),
+};
+
 const CSS = String.raw`
 :root {
     --timeline-label-width: 390px;
@@ -187,16 +209,36 @@ header {
 }
 
 .tog button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
     border: 0;
     background: transparent;
     color: var(--text-color-muted, #8b949e);
     font: inherit;
     font-size: 11px;
-    height: 20px;
+    height: 24px;
     padding: 0 9px;
     border-radius: 5px;
     cursor: pointer;
 }
+
+/* Icon-only controls keep a comfortable hit target. */
+.tog button.icon-only {
+    width: 28px;
+    padding: 0;
+}
+
+.ico {
+    flex: none;
+    display: block;
+    opacity: 0.9;
+}
+
+#refresh.on .ico { animation: spin 0.9s linear infinite; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .tog button.on {
     background: color-mix(in srgb, var(--text-color-default, #e6edf3) 12%, transparent);
@@ -276,6 +318,20 @@ header {
     font-variant-numeric: tabular-nums;
 }
 
+.axis .ticks span.edge-label {
+    transform: translateX(-50%);
+    font-weight: var(--font-weight-semibold, 600);
+}
+
+.axis .ticks span.mid-label::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 16px;
+    height: 4px;
+    border-left: 1px solid color-mix(in srgb, var(--text-color-muted, #8b949e) 45%, transparent);
+}
+
 .axis .cap {
     font-size: 10px;
     letter-spacing: 0.06em;
@@ -306,6 +362,11 @@ header {
     bottom: 0;
     width: 0;
     border-left: 1px dashed color-mix(in srgb, var(--text-color-muted, #8b949e) 45%, transparent);
+}
+
+.breaks i.edge {
+    border-left-style: solid;
+    border-left-color: color-mix(in srgb, var(--text-color-muted, #8b949e) 82%, transparent);
 }
 
 .row {
@@ -414,16 +475,23 @@ header {
 }
 
 .row-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
     border: 0;
     font: inherit;
     font-size: 10px;
     color: var(--text-color-muted, #8b949e);
     cursor: pointer;
     border-radius: 4px;
-    padding: 1px 4px;
+    padding: 2px 5px;
     background: color-mix(in srgb, var(--text-color-default, #e6edf3) 9%, transparent);
     white-space: nowrap;
 }
+
+.row-action .ico { width: 11px; height: 11px; }
+
+.row-action .chev { width: 10px; height: 10px; }
 
 .row-action:hover {
     background: color-mix(in srgb, var(--true-color-blue, #4493f8) 32%, transparent);
@@ -438,6 +506,15 @@ header {
 .row-action:disabled:hover {
     background: color-mix(in srgb, var(--text-color-default, #e6edf3) 9%, transparent);
     color: var(--text-color-muted, #8b949e);
+}
+
+/* Focused (selected) row action keeps its accent even while disabled. */
+.row-action.on,
+.row-action.on:disabled,
+.row-action.on:disabled:hover {
+    background: color-mix(in srgb, var(--true-color-blue, #4493f8) 34%, transparent);
+    color: var(--text-color-default, #e6edf3);
+    opacity: 1;
 }
 
 .g b .tr {
@@ -637,6 +714,14 @@ const JS = String.raw`
     var CREDIT = parseFloat(rootStyle.getPropertyValue("--timeline-credit-width")) || 104;
     var GAP_MS = 40 * 60 * 1000;
     var GAP_PX = 16;
+    var LOCAL_TZ = (function () {
+        try {
+            var zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+            return /^(UTC|GMT|Etc\/UTC|Etc\/GMT)$/i.test(zone) ? "UTC" : zone;
+        } catch (_) {
+            return "UTC";
+        }
+    }());
 
     var state = {
         data: window.__DATA__,
@@ -647,7 +732,7 @@ const JS = String.raw`
         root: null,
         busy: false,
         autoRefresh: false,
-        tz: "Asia/Tokyo"
+        tz: LOCAL_TZ
     };
     var AUTO_REFRESH_MS = 30000;
     var autoRefreshTimer = 0;
@@ -680,10 +765,36 @@ const JS = String.raw`
         return Math.floor(h / 24) + "d " + (h % 24) + "h";
     }
     /* All wall-clock rendering follows state.tz; the DB itself stays UTC.
-       JST is the default because the host machine usually runs UTC. */
-    var TZ_LABELS = { "Asia/Tokyo": "JST", "UTC": "UTC" };
+       The browser's local IANA timezone is the default. */
+    var TZ_ABBREVIATIONS = { "Asia/Tokyo": "JST" };
     var TZFMTS = {};
-    function tzLabel() { return TZ_LABELS[state.tz] || state.tz; }
+    function intlZoneName(style) {
+        var parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: state.tz, timeZoneName: style
+        }).formatToParts(new Date());
+        var name = parts.filter(function (p) { return p.type === "timeZoneName"; })[0];
+        return name && name.value ? name.value : "";
+    }
+    function tzLabel() {
+        if (state.tz === "UTC") return "UTC";
+        if (TZ_ABBREVIATIONS[state.tz]) return TZ_ABBREVIATIONS[state.tz];
+        try {
+            var shortName = intlZoneName("short");
+            if (shortName && !/^(?:GMT|UTC)[+-]/.test(shortName)) return shortName;
+            var genericName = intlZoneName("shortGeneric") || intlZoneName("longGeneric");
+            if (genericName && !/^(?:GMT|UTC)[+-]/.test(genericName)) {
+                return genericName.replace(/ (?:Standard |Daylight )?Time$/, "");
+            }
+            return state.tz.split("/").pop().replace(/_/g, " ") || "Local";
+        } catch (_) {
+            return state.tz.split("/").pop().replace(/_/g, " ") || "Local";
+        }
+    }
+    function tzHint() {
+        if (LOCAL_TZ === "UTC") return "Timezone: UTC (local)";
+        if (state.tz === "UTC") return "Timezone: UTC — click for local";
+        return "Timezone: " + tzLabel() + " (local) — click for UTC";
+    }
     function tzfmt() {
         if (!TZFMTS[state.tz]) {
             TZFMTS[state.tz] = new Intl.DateTimeFormat("en-GB", {
@@ -758,23 +869,46 @@ const JS = String.raw`
     /* ---- piecewise time scale that squeezes idle gaps ----
        Gaps are detected from point events (session/agent starts and ends), not
        from merged spans: one long-running session must not keep an idle stretch
-       open just because its bar crosses it. */
+       open just because its bar crosses it. A session timestamp accompanied by
+       an uncompleted agent is only a fallback end; completed work or usage wins.
+       Active sessions alone may extend the domain to now. */
     function buildScale(list, width) {
-        var pts = [];
+        var starts = [], ends = [], fallbackEnds = [], running = false;
+        function add(target, value) {
+            var point = Date.parse(value);
+            if (isFinite(point)) target.push(point);
+        }
+        function addUsageEnds(target, profiles) {
+            (profiles || []).forEach(function (profile) { add(target, profile.lastUsedAt); });
+        }
         list.forEach(function (s) {
-            var a = Date.parse(s.createdAt);
-            var b = Date.parse(s.finishedAt || s.createdAt);
-            if (isFinite(a)) pts.push(a);
-            if (isFinite(b)) pts.push(b);
+            var hasOpenAgent = s.agents.some(function (g) {
+                return g.startedAt && !g.completedAt;
+            });
+            add(starts, s.createdAt);
+            add(hasOpenAgent && s.status !== "idle" && s.status !== "cancelled"
+                ? fallbackEnds : ends, s.finishedAt);
+            add(ends, s.usageUpdatedAt);
+            addUsageEnds(ends, s.modelProfiles);
+            if (s.status === "active") running = true;
             s.agents.forEach(function (g) {
-                var c = Date.parse(g.startedAt), d = Date.parse(g.completedAt);
-                if (isFinite(c)) pts.push(c);
-                if (isFinite(d)) pts.push(d);
+                add(starts, g.startedAt);
+                add(ends, g.completedAt);
+                addUsageEnds(ends, g.profiles);
             });
         });
+        if (!starts.length && !ends.length && !fallbackEnds.length) {
+            return { x: function () { return 0; }, segs: [], breaks: [], min: 0, max: 0 };
+        }
+        var domainMax = ends.length
+            ? Math.max.apply(null, ends)
+            : fallbackEnds.length
+                ? Math.max.apply(null, fallbackEnds)
+                : Math.max.apply(null, starts);
+        if (running) domainMax = Math.max(domainMax, Date.now());
+        var pts = starts.concat(ends, fallbackEnds).filter(function (point) { return point <= domainMax; });
+        pts.push(domainMax);
         pts.sort(function (x, y) { return x - y; });
-
-        if (!pts.length) return { x: function () { return 0; }, segs: [], breaks: [], min: 0, max: 0 };
 
         var segs = [];
         if (state.compress) {
@@ -803,6 +937,9 @@ const JS = String.raw`
         function x(t) {
             for (var i = 0; i < segs.length; i++) {
                 if (t <= segs[i][1]) {
+                    if (i === segs.length - 1 && t === segs[i][1]) {
+                        return segs[i].px + segs[i].w;
+                    }
                     if (t <= segs[i][0]) return segs[i].px;
                     return segs[i].px + ((t - segs[i][0]) / (segs[i][1] - segs[i][0])) * segs[i].w;
                 }
@@ -880,15 +1017,18 @@ const JS = String.raw`
             (node.depth ? '<i class="tr"></i>' : "") + esc(s.title) + '</b>' +
             (run ? '<span class="run">' + esc(run) + '</span>' : "") +
             '<span class="chips">' +
-                (s.current ? '<span class="current-badge" title="このキャンバスを開いているセッション">現在</span>' : "") +
-                '<button class="row-action focus" data-root="' + esc(s.id) +
-                    '" title="このセッションをルートにして表示範囲を絞る"' +
+                (s.current ? '<span class="current-badge" title="Session that opened this canvas" aria-label="Current session">Now</span>' : "") +
+                '<button class="row-action focus' + (state.root === s.id ? " on" : "") + '" data-root="' + esc(s.id) +
+                    '" title="' + (state.root === s.id ? "Focused on this session" : "Focus: narrow the view to this session") +
+                    '" aria-label="' + (state.root === s.id ? "Focused on this session" : "Focus on this session") + '"' +
                     (state.root === s.id ? ' disabled aria-current="true"' : "") + '>' +
-                    (state.root === s.id ? "表示中" : "フォーカス") + '</button>' +
+                    ${JSON.stringify(ICONS.focus)} + 'Focus</button>' +
                 (s.agents.length ? '<button class="row-action expand" data-toggle-agents="' + esc(s.id) +
-                    '" title="サブエージェントを展開・折りたたみ" aria-expanded="' +
+                    '" title="Expand / collapse sub-agents" aria-label="Expand or collapse ' + s.agents.length +
+                    ' sub-agents" aria-expanded="' +
                     (state.collapsed[s.id] ? "false" : "true") + '">' +
-                    (state.collapsed[s.id] ? "▸ " : "▾ ") + s.agents.length + '</button>' : "") +
+                    (state.collapsed[s.id] ? ${JSON.stringify(ICONS.chevronRight)} : ${JSON.stringify(ICONS.chevronDown)}) +
+                    s.agents.length + '</button>' : "") +
                 '</span></div>' +
             '<div class="track"><div class="bar" style="left:' + a.toFixed(1) + 'px;width:' + w.toFixed(1) +
             'px;background:' + c + '">' + ticks + '</div></div>' +
@@ -904,7 +1044,7 @@ const JS = String.raw`
         var c = color(s.stage);
         var pct = Math.max(1, Math.pow(g.aiu / maxAiu, 0.7) * 60);
         var pad = Math.min(depth, 4) * 13;
-        var summary = g.taskDescription || g.promptSummary || "作業概要なし";
+        var summary = g.taskDescription || g.promptSummary || "No task summary";
         var run = [modelLabel(g.model), g.reasoningEffort].filter(Boolean).join(" · ");
         return '<div class="grid row kid" data-agent="' + esc(s.id) + "|" + esc(g.id) + '">' +
             '<div class="g"><s style="color:' + c + '">' +
@@ -963,14 +1103,14 @@ const JS = String.raw`
 
         el("meta").innerHTML = esc(clock(d.generatedAt)) +
             ' <button type="button" id="tzflip" class="tzflip"' +
-            ' title="クリックで JST / UTC を切り替え" aria-label="表示タイムゾーン: ' +
-            tzLabel() + '（クリックで切替）">' + tzLabel() + " 時点</button> · " +
-            esc((t.aiu ? Math.round(t.childAiu / t.aiu * 100) : 0) + "% がサブエージェント" +
-                (t.compactionAiu ? " · うち圧縮 " + grp(t.compactionAiu) + " AIU" : "") +
-                (d.treeAvailable ? "" : " · 親子リンクなし"));
+            ' title="' + esc(tzHint()) + '" aria-label="' + esc(tzHint()) + '">' +
+            esc(tzLabel()) + "</button> · " +
+            esc((t.aiu ? Math.round(t.childAiu / t.aiu * 100) : 0) + "% sub-agents" +
+                (t.compactionAiu ? " · compaction " + grp(t.compactionAiu) + " AIU" : "") +
+                (d.treeAvailable ? "" : " · no parent links"));
 
         /* breadcrumb */
-        var crumbs = '<b class="crumb' + (state.root ? "" : " on") + '" data-root="">リポジトリ全体</b>';
+        var crumbs = '<b class="crumb' + (state.root ? "" : " on") + '" data-root="">Repository</b>';
         if (state.root) {
             ancestors(state.root, ix).forEach(function (s, i, all) {
                 crumbs += '<i>›</i><b class="crumb' + (i === all.length - 1 ? " on" : "") +
@@ -995,14 +1135,25 @@ const JS = String.raw`
         var flowScale = buildScale(list, flowWidth);
         flowHost.innerHTML = flow(list, flowScale, flowWidth);
 
-        var last = -999;
+        var last = scale.segs.length ? 0 : -999;
         var ticks = scale.segs.map(function (sg) {
+            if (sg[0] === scale.min || sg[0] === scale.max) return "";
             if (sg.px - last < 52) return "";
             last = sg.px;
             var p = tparts(sg[0]);
-            return '<span style="left:' + sg.px.toFixed(1) + 'px">' + p.month + "/" + p.day +
+            return '<span class="mid-label" style="left:' + sg.px.toFixed(1) + 'px">' + p.month + "/" + p.day +
                 " " + p.hour + ":" + p.minute + "</span>";
         }).join("");
+        if (scale.segs.length) {
+            var start = tparts(scale.min);
+            var end = tparts(scale.max);
+            ticks = '<span class="edge-label" style="left:0px">' +
+                start.month + "/" + start.day + " " + start.hour + ":" + start.minute +
+                "</span>" + ticks +
+                '<span class="edge-label" style="left:' + width.toFixed(1) +
+                'px">' + end.month + "/" + end.day +
+                " " + end.hour + ":" + end.minute + "</span>";
+        }
         el("ticks").innerHTML = ticks;
 
         /* rows */
@@ -1017,14 +1168,18 @@ const JS = String.raw`
             return out;
         }).join("");
 
-        host.innerHTML = '<div class="breaks">' +
+        var edgeRails = scale.segs.length
+            ? '<i class="edge" style="left:' + GUTTER.toFixed(1) + 'px"></i>' +
+                '<i class="edge" style="left:' + (GUTTER + width).toFixed(1) + 'px"></i>'
+            : "";
+        host.innerHTML = '<div class="breaks">' + edgeRails +
             scale.breaks.map(function (b) { return '<i style="left:' + (b + GUTTER).toFixed(1) + 'px"></i>'; }).join("") +
             "</div>" + html;
 
         if (!nodes.length) {
             host.innerHTML = '<div class="empty">' +
-                esc(state.root ? "この範囲に表示できるセッションがありません。パンくずの「リポジトリ全体」で戻れます。"
-                    : (d.availability.message || "表示できるセッションがありません。")) + "</div>";
+                esc(state.root ? "No sessions to show in this range. Use the \"Repository\" breadcrumb to go back."
+                    : (d.availability.message || "No sessions to show.")) + "</div>";
         }
         syncAgentToggle();
     }
@@ -1079,7 +1234,7 @@ const JS = String.raw`
             return [
                 esc(modelLabel(p.model) || "-"),
                 esc(p.reasoningEffort || "-"),
-                grp(p.requests) + "回",
+                grp(p.requests) + " req",
                 grp(p.aiu) + " AIU"
             ].join(" · ");
         }).join("<br>");
@@ -1097,38 +1252,38 @@ const JS = String.raw`
         })(s.id);
         return "<h4>" + esc(s.title) + "</h4><dl>" +
             dlRow(esc(stageLabel(s.stage)), esc(s.branch || "-")) +
-            (s.model ? dlRow("モデル", esc(modelLabel(s.model))) : "") +
+            (s.model ? dlRow("Model", esc(modelLabel(s.model))) : "") +
             (s.reasoningEffort ? dlRow("Effort", esc(s.reasoningEffort)) : "") +
             (s.modelProfiles && s.modelProfiles.length > 1
-                ? dlRow("使用履歴", profileHistory(s.modelProfiles))
+                ? dlRow("History", profileHistory(s.modelProfiles))
                 : "") +
-            dlRow("期間", clock(s.createdAt) + " → " + dur(s.elapsedMs)) +
-            dlRow("クレジット", grp(s.aiu) + " AIU") +
-            (s.compactionAiu ? dlRow("うち圧縮", grp(s.compactionAiu) + " AIU · " +
-                s.compactionRequests + "回") : "") +
-            (s.childAiu ? dlRow("うちサブ", grp(s.childAiu) + " AIU · " + s.agents.length + "体") : "") +
-            (kids ? dlRow("配下合計", grp(sum) + " AIU · " + kids + " セッション") : "") +
-            dlRow("リクエスト", grp(s.requests)) +
-            dlRow("トークン", grp(s.inputTokens / 1000) + "k in / " + grp(s.outputTokens / 1000) + "k out") +
-            (refs ? dlRow("参照", esc(refs)) : "") +
+            dlRow("Span", clock(s.createdAt) + " → " + dur(s.elapsedMs)) +
+            dlRow("Credits", grp(s.aiu) + " AIU") +
+            (s.compactionAiu ? dlRow("compaction", grp(s.compactionAiu) + " AIU · " +
+                s.compactionRequests + " req") : "") +
+            (s.childAiu ? dlRow("sub-agents", grp(s.childAiu) + " AIU · " + s.agents.length + " agents") : "") +
+            (kids ? dlRow("Subtree", grp(sum) + " AIU · " + kids + " sessions") : "") +
+            dlRow("Requests", grp(s.requests)) +
+            dlRow("Tokens", grp(s.inputTokens / 1000) + "k in / " + grp(s.outputTokens / 1000) + "k out") +
+            (refs ? dlRow("Refs", esc(refs)) : "") +
             "</dl>";
     }
 
     function agentTip(g) {
         return "<h4>" + esc(g.name) + "</h4><dl>" +
-            (g.taskDescription ? dlRow("作業", esc(g.taskDescription)) : "") +
+            (g.taskDescription ? dlRow("Task", esc(g.taskDescription)) : "") +
             (g.promptSummary && g.promptSummary !== g.taskDescription
-                ? dlRow("依頼", esc(g.promptSummary))
+                ? dlRow("Prompt", esc(g.promptSummary))
                 : "") +
-            dlRow("モデル", esc(modelLabel(g.model) || "-")) +
+            dlRow("Model", esc(modelLabel(g.model) || "-")) +
             dlRow("Effort", esc(g.reasoningEffort || "-")) +
             (g.profiles && g.profiles.length > 1
-                ? dlRow("使用履歴", profileHistory(g.profiles))
+                ? dlRow("History", profileHistory(g.profiles))
                 : "") +
-            dlRow("実行", (g.durationMs ? dur(g.durationMs) : "-")) +
-            dlRow("クレジット", grp(g.aiu) + " AIU") +
-            dlRow("ツール", grp(g.toolCalls)) +
-            dlRow("トークン", grp(g.totalTokens / 1000) + "k") +
+            dlRow("Runtime", (g.durationMs ? dur(g.durationMs) : "-")) +
+            dlRow("Credits", grp(g.aiu) + " AIU") +
+            dlRow("Tools", grp(g.toolCalls)) +
+            dlRow("Tokens", grp(g.totalTokens / 1000) + "k") +
             "</dl>";
     }
 
@@ -1160,7 +1315,7 @@ const JS = String.raw`
 
     document.addEventListener("click", function (ev) {
         if (ev.target.closest && ev.target.closest("#tzflip")) {
-            state.tz = state.tz === "Asia/Tokyo" ? "UTC" : "Asia/Tokyo";
+            if (LOCAL_TZ !== "UTC") state.tz = state.tz === "UTC" ? LOCAL_TZ : "UTC";
             hideTip();
             render();
             return;
@@ -1234,7 +1389,11 @@ const JS = String.raw`
         var button = el("auto-refresh");
         button.classList.toggle("on", state.autoRefresh);
         button.setAttribute("aria-pressed", state.autoRefresh ? "true" : "false");
-        button.textContent = state.autoRefresh ? "自動 ON · 30秒" : "自動 OFF";
+        button.innerHTML = ${JSON.stringify(ICONS.clock)} + (state.autoRefresh ? "Auto 30s" : "Auto");
+        button.title = state.autoRefresh
+            ? "Auto refresh on (every 30s) — click to turn off"
+            : "Auto refresh off — click to refresh every 30s";
+        button.setAttribute("aria-label", button.title);
         clearInterval(autoRefreshTimer);
         autoRefreshTimer = state.autoRefresh
             ? setInterval(refresh, AUTO_REFRESH_MS)
@@ -1250,7 +1409,10 @@ const JS = String.raw`
         });
         var button = el("toggle-agents");
         button.disabled = !sessions.length;
-        button.textContent = allCollapsed ? "すべて展開" : "すべて折りたたむ";
+        button.innerHTML = allCollapsed ? ${JSON.stringify(ICONS.expandAll)} : ${JSON.stringify(ICONS.collapseAll)};
+        button.title = allCollapsed ? "Expand all sub-agents" : "Collapse all sub-agents";
+        button.setAttribute("aria-label", button.title);
+        button.setAttribute("aria-expanded", allCollapsed ? "false" : "true");
     }
 
     function toggleAllAgents() {
@@ -1281,7 +1443,7 @@ const JS = String.raw`
 export function renderHtml(data) {
     const json = JSON.stringify(data).replace(/</g, "\\u003c");
     return `<!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <title>Credit Timeline</title>
@@ -1300,23 +1462,23 @@ export function renderHtml(data) {
     <div class="bar-tools">
         <div id="legend" style="display:flex;gap:6px;flex-wrap:wrap"></div>
         <div class="spacer"></div>
-        <div class="tog">
-            <button data-set="compress:1" class="on">圧縮</button>
-            <button data-set="compress:0">実時間</button>
+        <div class="tog" aria-label="Time scale">
+            <button data-set="compress:1" class="on" title="Compressed time scale (collapse idle gaps)" aria-label="Compressed time scale">${ICONS.compress}Compress</button>
+            <button data-set="compress:0" title="Real time scale" aria-label="Real time scale">${ICONS.realtime}Real</button>
         </div>
-        <div class="tog">
-            <button data-set="sort:time" class="on">時系列</button>
-            <button data-set="sort:aiu">消費順</button>
+        <div class="tog" aria-label="Sort order">
+            <button data-set="sort:time" class="on" title="Sort by time" aria-label="Sort by time">${ICONS.clock}Time</button>
+            <button data-set="sort:aiu" title="Sort by credits (AIU)" aria-label="Sort by credits">${ICONS.credits}Credits</button>
         </div>
-        <div class="tog"><button id="toggle-agents">すべて折りたたむ</button></div>
+        <div class="tog"><button id="toggle-agents" class="icon-only" title="Collapse all sub-agents" aria-label="Collapse all sub-agents" aria-expanded="true">${ICONS.collapseAll}</button></div>
         <div class="tog">
-            <button id="auto-refresh" aria-pressed="false">自動 OFF</button>
-            <button id="refresh">更新</button>
+            <button id="auto-refresh" aria-pressed="false" title="Auto refresh off — click to refresh every 30s" aria-label="Auto refresh off — click to refresh every 30s">${ICONS.clock}Auto</button>
+            <button id="refresh" class="icon-only" title="Refresh now" aria-label="Refresh now">${ICONS.refresh}</button>
         </div>
     </div>
     <div class="crumbs" id="crumbs"></div>
     <div class="axis grid">
-        <div class="cap">セッション</div>
+        <div class="cap">Session</div>
         <div class="ticks" id="ticks"></div>
         <div class="cap r">AIU</div>
     </div>
