@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, normalize, parse, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 const COPILOT_HOME =
@@ -22,6 +22,13 @@ export const STAGES = [
     { id: "tooling", label: "Tooling", order: 95 },
     { id: "other", label: "Other", order: 100 },
 ];
+
+export const SCOPES = {
+    CURRENT_CHAT_TREE: "current_chat_tree",
+    CURRENT_REPOSITORY: "current_repository",
+    CURRENT_FOLDER: "current_folder",
+    ALL_SESSIONS: "all_sessions",
+};
 
 const SKILL_STAGES = [
     ["gate", /final-dod-gate/],
@@ -142,6 +149,7 @@ export function parseEvents(content) {
     const taskMetadata = new Map();
     let lastEventAt = "";
     let lastLifecycleType = "";
+    let shutdownType = "";
     let selectedModel = "";
     let reasoningEffort = "";
 
@@ -163,6 +171,9 @@ export function parseEvents(content) {
             event.type === "session.shutdown"
         ) {
             lastLifecycleType = event.type;
+            if (event.type === "session.shutdown") {
+                shutdownType = safeText(event.data?.shutdownType);
+            }
             selectedModel =
                 safeText(event.data?.selectedModel) || selectedModel;
             reasoningEffort =
@@ -245,6 +256,7 @@ export function parseEvents(content) {
         })),
         lastEventAt,
         lastLifecycleType,
+        shutdownType,
         selectedModel,
         reasoningEffort,
     };
@@ -257,6 +269,7 @@ function readEvents(sessionId, stateRoot = SESSION_STATE) {
             agents: [],
             lastEventAt: "",
             lastLifecycleType: "",
+            shutdownType: "",
             selectedModel: "",
             reasoningEffort: "",
         };
@@ -265,10 +278,45 @@ function readEvents(sessionId, stateRoot = SESSION_STATE) {
 }
 
 function statusFromEvents(events) {
-    if (events.lastLifecycleType === "session.shutdown") return "idle";
+    if (events.lastLifecycleType === "session.shutdown") {
+        return /cancel(?:led|ed)?/i.test(events.shutdownType)
+            ? "cancelled"
+            : "idle";
+    }
     if (!events.lastEventAt) return "unknown";
     const age = Date.now() - Date.parse(events.lastEventAt);
     return age < 15 * 60 * 1000 ? "active" : "inactive";
+}
+
+function isTerminalWithoutUsage(row, events) {
+    return (
+        events.lastLifecycleType === "session.shutdown" &&
+        Number(row.nano_aiu) === 0 &&
+        Number(row.requests) === 0
+    );
+}
+
+function isUntitledWithoutUsage(row, workspace, events) {
+    return (
+        Number(row.nano_aiu) === 0 &&
+        Number(row.requests) === 0 &&
+        !events.lastEventAt &&
+        !safeText(workspace.name) &&
+        !firstMeaningfulLine(row.summary) &&
+        !safeText(workspace.branch) &&
+        !safeText(row.branch)
+    );
+}
+
+function nearestVisibleParent(sessionId, parents, visibleIds) {
+    const seen = new Set([sessionId]);
+    let parent = safeText(parents[sessionId]);
+    while (parent && !seen.has(parent)) {
+        if (visibleIds.has(parent)) return parent;
+        seen.add(parent);
+        parent = safeText(parents[parent]);
+    }
+    return "";
 }
 
 function durationMs(start, end) {
@@ -304,22 +352,166 @@ export function resolveRepository({
 }) {
     if (safeText(requestedRepository)) return requestedRepository.trim();
     const workspace = readWorkspace(sessionId, stateRoot);
-    if (workspace.repository) return workspace.repository;
-    throw new Error(
-        "Repository could not be resolved. Pass { repository: 'owner/repo' } when opening the canvas.",
-    );
+    return workspace.repository || "";
+}
+
+export function normalizeRootFolder(value) {
+    const folder = safeText(value);
+    if (!folder) return "";
+    const resolved = normalize(resolve(folder));
+    const normalized =
+        resolved === parse(resolved).root
+            ? resolved
+            : resolved.replace(/[\\/]+$/, "");
+    return process.platform === "win32"
+        ? normalized.toLowerCase()
+        : normalized;
+}
+
+export function resolveSessionFolder({
+    requestedFolder,
+    sessionId,
+    storePath = SESSION_STORE,
+}) {
+    if (safeText(requestedFolder)) {
+        return normalizeRootFolder(requestedFolder);
+    }
+    if (!safeText(sessionId) || !existsSync(storePath)) return "";
+    let db;
+    try {
+        db = new DatabaseSync(storePath, { readOnly: true });
+        const row = db
+            .prepare("SELECT cwd FROM sessions WHERE id = ?")
+            .get(sessionId);
+        return normalizeRootFolder(row?.cwd);
+    } finally {
+        db?.close();
+    }
+}
+
+export function resolveScope({
+    requestedScope,
+    requestedRepository,
+    requestedFolder,
+    sessionId,
+    stateRoot = SESSION_STATE,
+    storePath = SESSION_STORE,
+}) {
+    const repository = resolveRepository({
+        requestedRepository,
+        sessionId,
+        stateRoot,
+    });
+    const folder = resolveSessionFolder({
+        requestedFolder,
+        sessionId,
+        storePath,
+    });
+    const validScopes = new Set(Object.values(SCOPES));
+    const scope = safeText(requestedScope);
+    if (scope && !validScopes.has(scope)) {
+        throw new Error(`Unknown timeline scope: ${scope}`);
+    }
+    const type =
+        scope ||
+        (repository
+            ? SCOPES.CURRENT_REPOSITORY
+            : SCOPES.CURRENT_CHAT_TREE);
+    if (type === SCOPES.CURRENT_REPOSITORY && !repository) {
+        throw new Error(
+            "The current repository scope requires a repository.",
+        );
+    }
+    if (type === SCOPES.CURRENT_FOLDER && !folder) {
+        throw new Error("The current folder scope requires a folder.");
+    }
+    return { type, repository, folder };
+}
+
+export function sessionTreeIds(seedSessionIds, parents) {
+    const seeds = Array.isArray(seedSessionIds)
+        ? seedSessionIds
+        : [seedSessionIds];
+    const included = new Set(seeds.map(safeText).filter(Boolean));
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (const [child, parent] of Object.entries(parents ?? {})) {
+            if (included.has(parent) && !included.has(child)) {
+                included.add(child);
+                changed = true;
+            }
+        }
+    }
+    return [...included];
+}
+
+export function topConsumers(dashboard, limit = 10) {
+    return [...dashboard.sessions]
+        .sort((a, b) => b.aiu - a.aiu)
+        .slice(0, limit)
+        .map((session) => ({
+            title: session.title,
+            repository: session.repository,
+            stage: session.stage,
+            startedAt: session.createdAt,
+            elapsedMs: session.elapsedMs,
+            aiu: session.aiu,
+            childAiu: session.childAiu,
+            agents: session.agents.length,
+        }));
+}
+
+function scopeMetadata(scope, repository, folder, currentSessionId) {
+    if (scope === SCOPES.CURRENT_REPOSITORY) {
+        return {
+            type: scope,
+            label: "Current repository",
+            detail: repository,
+        };
+    }
+    if (scope === SCOPES.CURRENT_FOLDER) {
+        return {
+            type: scope,
+            label: "Current folder",
+            detail: folder,
+        };
+    }
+    if (scope === SCOPES.ALL_SESSIONS) {
+        return {
+            type: scope,
+            label: "All sessions",
+            detail: "All chats and project sessions",
+        };
+    }
+    return {
+        type: SCOPES.CURRENT_CHAT_TREE,
+        label: "Current chat tree",
+        detail: currentSessionId || "Current chat",
+    };
 }
 
 export function collectDashboard({
     repository,
+    folder,
     currentSessionId,
+    scope = SCOPES.CURRENT_REPOSITORY,
     storePath = SESSION_STORE,
     stateRoot = SESSION_STATE,
     appPath = APP_STORE,
 }) {
+    const normalizedFolder = normalizeRootFolder(folder);
+    const scopeInfo = scopeMetadata(
+        scope,
+        repository,
+        normalizedFolder,
+        currentSessionId,
+    );
     if (!existsSync(storePath)) {
         return {
-            repository,
+            repository: repository ?? "",
+            folder: normalizedFolder,
+            scope: scopeInfo,
             generatedAt: new Date().toISOString(),
             stages: STAGES,
             totals: emptyTotals(),
@@ -347,6 +539,10 @@ export function collectDashboard({
         db.exec("BEGIN");
         transactionOpen = true;
         const includeCurrent = safeText(currentSessionId);
+        const tree = readSessionParents(appPath);
+        if (!Object.values(SCOPES).includes(scope)) {
+            throw new Error(`Unknown timeline scope: ${scope}`);
+        }
         const candidateRows = db
             .prepare(
                 `SELECT
@@ -369,22 +565,94 @@ export function collectDashboard({
                     MAX(u.created_at) AS usage_updated_at
                  FROM sessions s
                  LEFT JOIN assistant_usage_events u ON u.session_id = s.id
-                 WHERE s.repository = ?${
-                     includeCurrent ? " OR s.id = ?" : ""
-                 }
                  GROUP BY s.id
                  ORDER BY s.created_at`,
             )
-            .all(...(includeCurrent
-                ? [repository, includeCurrent]
-                : [repository]));
+            .all();
+        const workspaceBySession = new Map();
+        const eventsBySession = new Map();
+        const workspaceFor = (sessionId) => {
+            if (!workspaceBySession.has(sessionId)) {
+                workspaceBySession.set(
+                    sessionId,
+                    readWorkspace(sessionId, stateRoot),
+                );
+            }
+            return workspaceBySession.get(sessionId);
+        };
+        const eventsFor = (sessionId) => {
+            if (!eventsBySession.has(sessionId)) {
+                eventsBySession.set(
+                    sessionId,
+                    readEvents(sessionId, stateRoot),
+                );
+            }
+            return eventsBySession.get(sessionId);
+        };
+        let seedIds;
+        if (scope === SCOPES.CURRENT_CHAT_TREE) {
+            seedIds = includeCurrent ? [includeCurrent] : [];
+        } else if (scope === SCOPES.CURRENT_REPOSITORY) {
+            seedIds = candidateRows
+                .filter((row) => {
+                    const workspaceRepository =
+                        workspaceFor(row.id).repository;
+                    return (
+                        workspaceRepository || row.repository
+                    ) === repository;
+                })
+                .map((row) => row.id);
+        } else if (scope === SCOPES.CURRENT_FOLDER) {
+            seedIds = candidateRows
+                .filter(
+                    (row) =>
+                        normalizeRootFolder(row.cwd) === normalizedFolder,
+                )
+                .map((row) => row.id);
+        } else {
+            seedIds = candidateRows.map((row) => row.id);
+        }
+        const selectedIds =
+            scope === SCOPES.ALL_SESSIONS
+                ? new Set(seedIds)
+                : new Set(sessionTreeIds(seedIds, tree.parents));
+        /* Lifecycle files and SQLite are separate stores. End the candidate
+           snapshot, then re-read usage after lifecycle inspection so a usage
+           commit immediately preceding shutdown cannot look like terminal zero. */
+        for (const row of candidateRows) {
+            if (selectedIds.has(row.id)) eventsFor(row.id);
+        }
+        db.exec("COMMIT");
+        transactionOpen = false;
+        const freshUsage = db.prepare(
+            `SELECT
+                 COUNT(id) AS requests,
+                 COALESCE(SUM(total_nano_aiu), 0) AS nano_aiu,
+                 COALESCE(SUM(CASE WHEN initiator = 'compaction' THEN total_nano_aiu ELSE 0 END), 0)
+                     AS compaction_nano_aiu,
+                 COALESCE(SUM(CASE WHEN initiator = 'compaction' THEN 1 ELSE 0 END), 0)
+                     AS compaction_requests,
+                 COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                 COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                 COALESCE(SUM(duration_ms), 0) AS model_duration_ms,
+                 MAX(created_at) AS usage_updated_at
+             FROM assistant_usage_events
+             WHERE session_id = ?`,
+        );
+        for (const row of candidateRows) {
+            if (!selectedIds.has(row.id)) continue;
+            Object.assign(row, freshUsage.get(row.id));
+        }
         const rows = candidateRows.filter((row) => {
-            if (row.id !== includeCurrent) return true;
-            const workspaceRepository = readWorkspace(
-                row.id,
-                stateRoot,
-            ).repository;
-            return (workspaceRepository || row.repository) === repository;
+            if (!selectedIds.has(row.id)) return false;
+            if (scope === SCOPES.CURRENT_CHAT_TREE) return true;
+            const events = eventsFor(row.id);
+            if (isTerminalWithoutUsage(row, events)) return false;
+            return !isUntitledWithoutUsage(
+                row,
+                workspaceFor(row.id),
+                events,
+            );
         });
 
         const ids = rows.map((row) => row.id);
@@ -430,15 +698,11 @@ export function collectDashboard({
             }
         }
 
-        db.exec("COMMIT");
-        transactionOpen = false;
-
-        const tree = readSessionParents(appPath);
         const known = new Set(rows.map((row) => row.id));
 
         const sessions = rows.map((row) => {
-            const workspace = readWorkspace(row.id, stateRoot);
-            const events = readEvents(row.id, stateRoot);
+            const workspace = workspaceFor(row.id);
+            const events = eventsFor(row.id);
             const agentUsage = usageByAgent.get(row.id) ?? [];
             const usageMap = new Map();
             const modelProfiles = [];
@@ -514,7 +778,6 @@ export function collectDashboard({
                         agent.reasoningEffort,
                 };
             });
-
             for (const [id, usage] of usageMap) {
                 if (agents.some((agent) => agent.id === id)) continue;
                 agents.push({
@@ -555,10 +818,14 @@ export function collectDashboard({
             return {
                 id: row.id,
                 title,
+                repository:
+                    workspace.repository || row.repository || "",
                 branch: workspace.branch || row.branch || "",
-                parentId: known.has(tree.parents[row.id])
-                    ? tree.parents[row.id]
-                    : "",
+                parentId: nearestVisibleParent(
+                    row.id,
+                    tree.parents,
+                    known,
+                ),
                 stage: classification.stage,
                 stageConfidence: classification.confidence,
                 status: statusFromEvents(events),
@@ -587,6 +854,12 @@ export function collectDashboard({
                 refs: refsBySession.get(row.id) ?? [],
             };
         });
+        if (scope === SCOPES.CURRENT_CHAT_TREE) {
+            const current = sessions.find(
+                (item) => item.id === currentSessionId,
+            );
+            if (current) scopeInfo.detail = current.title;
+        }
 
         const totals = sessions.reduce(
             (result, item) => {
@@ -615,7 +888,9 @@ export function collectDashboard({
         );
 
         const dashboard = {
-            repository,
+            repository: repository ?? "",
+            folder: normalizedFolder,
+            scope: scopeInfo,
             generatedAt: new Date().toISOString(),
             stages: STAGES,
             totals,
@@ -631,7 +906,7 @@ export function collectDashboard({
                 usage: storePath,
                 events: stateRoot,
                 aiuFormula: "SUM(total_nano_aiu) / 1,000,000,000",
-                note: "Project sessions are grouped by inferred Scrum stage. Task sub-agents are nested from subagent lifecycle events.",
+                note: "Sessions are selected by chat tree, repository, folder, or all-session scope. Non-chat scopes omit shutdown zero-usage sessions and untitled zero-usage records with no lifecycle event; visible descendants are promoted past omitted parents. Chat-tree scope preserves every recorded relationship.",
             },
         };
         return dashboard;
@@ -648,26 +923,65 @@ export function collectDashboard({
 }
 
 /**
- * Session parent/child links, as recorded by the app when one session spawns
- * another (create_session / fork). Keyed by CLI session id. Missing or
- * unreadable app store is not an error: the timeline just stays flat.
+ * Session parent/child links recorded by the app when one session creates or
+ * coordinates another workspace. A workspace's coordinating creator is the
+ * strongest relation, followed by its creator and then its parent workspace.
+ * Creator session ids may refer to general chats with no workspace row.
  */
 export function readSessionParents(appPath = APP_STORE) {
     if (!existsSync(appPath)) return { parents: {}, available: false };
     let db;
     try {
         db = new DatabaseSync(appPath, { readOnly: true });
+        const workspaceColumns = new Set(
+            db.prepare("PRAGMA table_info(workspaces)")
+                .all()
+                .map((column) => column.name),
+        );
+        const hasParentLinks = Boolean(
+            db.prepare(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workspace_parent_links'",
+            ).get(),
+        );
+        const coordinatingColumn = workspaceColumns.has(
+            "coordinating_creator_session_id",
+        )
+            ? "w.coordinating_creator_session_id"
+            : "NULL";
+        const creatorColumn = workspaceColumns.has("creator_session_id")
+            ? "w.creator_session_id"
+            : "NULL";
+        const parentJoin = hasParentLinks
+            ? `LEFT JOIN workspace_parent_links l
+                   ON l.child_workspace_id = w.id
+               LEFT JOIN workspaces p ON p.id = l.parent_workspace_id`
+            : "";
+        const parentColumn = hasParentLinks ? "p.session_id" : "NULL";
         const rows = db
             .prepare(
-                `SELECT w.session_id AS child, p.session_id AS parent
+                `SELECT
+                     w.session_id AS child,
+                     ${coordinatingColumn} AS coordinating_parent,
+                     ${creatorColumn} AS creator_parent,
+                     ${parentColumn} AS linked_parent
                  FROM workspaces w
-                 JOIN workspace_parent_links l ON l.child_workspace_id = w.id
-                 JOIN workspaces p ON p.id = l.parent_workspace_id
-                 WHERE w.session_id IS NOT NULL AND p.session_id IS NOT NULL`,
+                 ${parentJoin}
+                 WHERE w.session_id IS NOT NULL`,
             )
             .all();
         const parents = {};
-        for (const row of rows) parents[row.child] = row.parent;
+        for (const row of rows) {
+            const child = safeText(row.child);
+            if (!child) continue;
+            const parent = [
+                row.coordinating_parent,
+                row.creator_parent,
+                row.linked_parent,
+            ]
+                .map(safeText)
+                .find((candidate) => candidate && candidate !== child);
+            if (parent) parents[child] = parent;
+        }
         return { parents, available: true };
     } catch {
         return { parents: {}, available: false };
