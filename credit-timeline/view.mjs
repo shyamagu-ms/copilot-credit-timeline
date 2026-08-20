@@ -17,7 +17,6 @@ const ICONS = {
     expandAll: icon('<path d="M4 6.5 8 10.5l4-4"/>'),
     chevronDown: icon('<path d="M4 6.5 8 10.5l4-4"/>', "chev"),
     chevronRight: icon('<path d="M6.5 3.5 10.5 8l-4 4.5"/>', "chev"),
-    focus: icon('<circle cx="8" cy="8" r="3.1"/><path d="M8 1.4v2.2"/><path d="M8 12.4v2.2"/><path d="M1.4 8h2.2"/><path d="M12.4 8h2.2"/>'),
     chat: icon('<path d="M2.5 3.5h11v7.2H7.6L4.3 13.2v-2.5H2.5z"/>'),
     repo: icon('<path d="M3.6 2.5h8.8v11H5a1.4 1.4 0 0 1-1.4-1.4z"/><path d="M3.6 11h8.8"/>'),
     folder: icon('<path d="M2 4h4.2l1.3 1.7H14v7.3H2z"/>'),
@@ -421,12 +420,17 @@ button:focus-visible,
 
 .row {
     height: 24px;
-    cursor: default;
+    cursor: pointer;
     border-radius: 5px;
     position: relative;
 }
 
 .row:hover { background: color-mix(in srgb, var(--text-color-default, #e6edf3) 5%, transparent); }
+
+.row:focus-visible {
+    outline: 1px solid var(--true-color-blue, #4493f8);
+    outline-offset: -1px;
+}
 
 .row.cur {
     background: color-mix(in srgb, var(--true-color-blue, #4493f8) 14%, transparent);
@@ -455,6 +459,7 @@ button:focus-visible,
     gap: 8px;
     padding-right: 12px;
     min-width: 0;
+    container-type: inline-size;
 }
 
 .g s {
@@ -496,12 +501,39 @@ button:focus-visible,
 }
 
 .g .run {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     font-size: 10px;
     color: var(--text-color-muted, #8b949e);
     white-space: nowrap;
+    max-width: 132px;
+    min-width: 0;
+}
+
+.g .model {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--text-color-default, #e6edf3) 8%, transparent);
+    text-overflow: ellipsis;
+}
+
+.g .effort {
+    flex: none;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 132px;
+}
+
+@container (max-width: 360px) {
+    .g .run { max-width: 96px; }
+    .g .effort { display: none; }
+}
+
+@container (max-width: 260px) {
+    .g .run { max-width: 72px; }
 }
 
 .g em {
@@ -511,17 +543,6 @@ button:focus-visible,
     color: var(--text-color-muted, #8b949e);
     font-variant-numeric: tabular-nums;
     opacity: 0.8;
-}
-
-.current-badge {
-    flex: none;
-    font-size: 10px;
-    line-height: 16px;
-    padding: 0 5px;
-    border-radius: 4px;
-    color: var(--color-white, #fff);
-    background: var(--true-color-blue, #4493f8);
-    white-space: nowrap;
 }
 
 .row-action {
@@ -556,15 +577,6 @@ button:focus-visible,
 .row-action:disabled:hover {
     background: color-mix(in srgb, var(--text-color-default, #e6edf3) 9%, transparent);
     color: var(--text-color-muted, #8b949e);
-}
-
-/* Focused (selected) row action keeps its accent even while disabled. */
-.row-action.on,
-.row-action.on:disabled,
-.row-action.on:disabled:hover {
-    background: color-mix(in srgb, var(--true-color-blue, #4493f8) 34%, transparent);
-    color: var(--text-color-default, #e6edf3);
-    opacity: 1;
 }
 
 .g b .tr {
@@ -644,7 +656,10 @@ button:focus-visible,
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
-.kid { height: 17px; }
+.kid {
+    height: 17px;
+    cursor: default;
+}
 
 .kid .g {
     padding-left: 16px;
@@ -741,9 +756,8 @@ button:focus-visible,
         --timeline-credit-width: 88px;
     }
     .g {
-        grid-template-columns: 70px minmax(0, 1fr) auto;
+        grid-template-columns: 70px minmax(0, 1fr) minmax(0, 96px) auto;
     }
-    .g .run { display: none; }
     .kpis { gap: 16px; }
 }
 
@@ -764,7 +778,7 @@ button:focus-visible,
     }
     .kpi b { font-size: 18px; }
     .g {
-        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 72px) auto;
         padding-right: 6px;
     }
     .g s { display: none; }
@@ -773,7 +787,6 @@ button:focus-visible,
         gap: 4px;
         padding-left: 4px;
     }
-    .row-action.focus { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1172,20 +1185,24 @@ const JS = String.raw`
         });
         var pct = Math.max(2, Math.pow(s.aiu / maxAiu, 0.7) * 60);
         var pad = Math.min(node.depth, 4) * 13;
-        var run = [modelLabel(s.model), s.reasoningEffort].filter(Boolean).join(" · ");
+        var model = modelLabel(s.model);
+        var effort = s.reasoningEffort || "";
+        var runTitle = [model, effort].filter(Boolean).join(" · ");
+        var run = runTitle
+            ? '<span class="run" title="' + esc(runTitle) + '">' +
+                (model ? '<span class="model">' + esc(model) + '</span>' : "") +
+                (effort ? '<span class="effort">' + esc(effort) + '</span>' : "") +
+                "</span>"
+            : "";
         return '<div class="grid row' + (s.current ? " cur" : "") + (s.aiu >= maxAiu * 0.4 ? " hot" : "") +
-            '" data-id="' + esc(s.id) + '">' +
+            '" data-id="' + esc(s.id) + '" tabindex="0" role="group"' +
+            ' aria-label="Focus on session: ' + esc(s.title) + '"' +
+            (state.root === s.id ? ' aria-current="true"' : "") + '>' +
             '<div class="g"><s style="color:' + c + '">' + esc(SHORT[s.stage] || s.stage) + '</s>' +
             '<b style="padding-left:' + pad + 'px">' +
             (node.depth ? '<i class="tr"></i>' : "") + esc(s.title) + '</b>' +
-            (run ? '<span class="run">' + esc(run) + '</span>' : "") +
+            run +
             '<span class="chips">' +
-                (s.current ? '<span class="current-badge" title="Session that opened this canvas" aria-label="Current session">Now</span>' : "") +
-                '<button class="row-action focus' + (state.root === s.id ? " on" : "") + '" data-root="' + esc(s.id) +
-                    '" title="' + (state.root === s.id ? "Focused on this session" : "Focus: narrow the view to this session") +
-                    '" aria-label="' + (state.root === s.id ? "Focused on this session" : "Focus on this session") + '"' +
-                    (state.root === s.id ? ' disabled aria-current="true"' : "") + '>' +
-                    ${JSON.stringify(ICONS.focus)} + 'Focus</button>' +
                 (s.agents.length ? '<button class="row-action expand" data-toggle-agents="' + esc(s.id) +
                     '" title="Expand / collapse sub-agents" aria-label="Expand or collapse ' + s.agents.length +
                     ' sub-agents" aria-expanded="' +
@@ -1208,12 +1225,20 @@ const JS = String.raw`
         var pct = Math.max(1, Math.pow(g.aiu / maxAiu, 0.7) * 60);
         var pad = Math.min(depth, 4) * 13;
         var summary = g.taskDescription || g.promptSummary || "No task summary";
-        var run = [modelLabel(g.model), g.reasoningEffort].filter(Boolean).join(" · ");
+        var model = modelLabel(g.model);
+        var effort = g.reasoningEffort || "";
+        var runTitle = [model, effort].filter(Boolean).join(" · ");
+        var run = runTitle
+            ? '<span class="run" title="' + esc(runTitle) + '">' +
+                (model ? '<span class="model">' + esc(model) + '</span>' : "") +
+                (effort ? '<span class="effort">' + esc(effort) + '</span>' : "") +
+                "</span>"
+            : "";
         return '<div class="grid row kid" data-agent="' + esc(s.id) + "|" + esc(g.id) + '">' +
             '<div class="g"><s style="color:' + c + '">' +
             esc(g.name) + '</s><b style="padding-left:' +
             pad + 'px">' + esc(summary) + '</b>' +
-            (run ? '<span class="run">' + esc(run) + '</span>' : "") + '</div>' +
+            run + '</div>' +
             '<div class="track"><div class="bar" style="left:' + a.toFixed(1) + 'px;width:' + w.toFixed(1) +
             'px;background:' + c + '"></div></div>' +
             '<div class="cred"><i style="width:' + pct.toFixed(1) + 'px;background:' + c + '"></i><b>' +
@@ -1457,6 +1482,14 @@ const JS = String.raw`
         return state.data.sessions.filter(function (s) { return s.id === id; })[0];
     }
 
+    function focusSession(id) {
+        if (state.root === id) return;
+        state.root = id;
+        hideTip();
+        render();
+        el("rows").parentNode.scrollTop = 0;
+    }
+
     /* ---- events ---- */
     document.addEventListener("mouseover", function (ev) {
         var row = ev.target.closest ? ev.target.closest(".row") : null;
@@ -1499,10 +1532,7 @@ const JS = String.raw`
         var rootBtn = ev.target.closest ? ev.target.closest("[data-root]") : null;
         if (rootBtn) {
             ev.stopPropagation();
-            state.root = rootBtn.dataset.root || "";
-            hideTip();
-            render();
-            el("rows").parentNode.scrollTop = 0;
+            focusSession(rootBtn.dataset.root || "");
             return;
         }
         var chip = ev.target.closest ? ev.target.closest(".chip[data-stage]") : null;
@@ -1543,6 +1573,16 @@ const JS = String.raw`
             render();
             return;
         }
+        var sessionRow = ev.target.closest ? ev.target.closest(".row[data-id]") : null;
+        if (sessionRow) focusSession(sessionRow.dataset.id);
+    });
+
+    document.addEventListener("keydown", function (ev) {
+        var sessionRow = ev.target.closest ? ev.target.closest(".row[data-id]") : null;
+        if (!sessionRow || ev.target !== sessionRow ||
+            (ev.key !== "Enter" && ev.key !== " ")) return;
+        ev.preventDefault();
+        focusSession(sessionRow.dataset.id);
     });
 
     function refresh() {

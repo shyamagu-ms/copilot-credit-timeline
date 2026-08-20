@@ -588,6 +588,15 @@ test("rendered UI exposes all four explicit scope controls", () => {
     assert.match(html, /min\(var\(--timeline-label-width\), 52%\)/);
     assert.match(html, /grid-template-columns: minmax\(0, 1fr\) max-content/);
     assert.match(html, /max-width: 100%/);
+    assert.match(html, /container-type: inline-size/);
+    assert.match(html, /class="model"/);
+    assert.match(html, /class="effort"/);
+    assert.doesNotMatch(html, /\.g \.run \{ display: none; \}/);
+    assert.doesNotMatch(html, /current-badge/);
+    assert.doesNotMatch(html, /Focus<\/button>/);
+    assert.doesNotMatch(html, /ICONS\.focus/);
+    assert.match(html, /tabindex="0" role="group"/);
+    assert.match(html, /document\.addEventListener\("keydown"/);
     assert.match(html, /var width = Math\.max\(1, timeline\.clientWidth\)/);
     assert.match(html, /width \* 0\.2\) \/ gapCount/);
     assert.doesNotMatch(html, /domainMax\s*=\s*Math\.max\(domainMax,\s*Date\.now\(\)\)/);
