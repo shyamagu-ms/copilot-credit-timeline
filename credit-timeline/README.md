@@ -151,7 +151,8 @@ The open input accepts `scope: "current_chat_tree" | "current_repository" |
 
 The extension reads local Copilot session databases in read-only mode and serves the
 dashboard only from a loopback HTTP server bound to `127.0.0.1`. It does not send
-session data to an external service.
+session data to an external service. The server rejects requests with a non-loopback
+host or a cross-origin browser origin.
 
 The view follows host theme tokens, narrow canvas widths, and the operating
 system's reduced-motion preference.

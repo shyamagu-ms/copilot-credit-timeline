@@ -27,8 +27,14 @@ function sendJson(res, statusCode, value) {
     res.writeHead(statusCode, {
         "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "no-store",
+        "Cross-Origin-Resource-Policy": "same-origin",
     });
     res.end(JSON.stringify(value));
+}
+
+function isTrustedRequest(req, origin) {
+    if (req.headers.host !== origin.host) return false;
+    return !req.headers.origin || req.headers.origin === origin.origin;
 }
 
 function configureScope(
@@ -94,7 +100,13 @@ async function startServer({
         clients: new Set(),
     };
 
+    let origin;
     const server = createServer((req, res) => {
+        if (!origin || !isTrustedRequest(req, origin)) {
+            sendJson(res, 403, { error: "forbidden" });
+            return;
+        }
+
         const url = new URL(req.url ?? "/", "http://127.0.0.1");
 
         try {
@@ -102,6 +114,7 @@ async function startServer({
                 res.writeHead(200, {
                     "Content-Type": "text/html; charset=utf-8",
                     "Cache-Control": "no-store",
+                    "Cross-Origin-Resource-Policy": "same-origin",
                     "Content-Security-Policy":
                         "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:;",
                 });
@@ -144,10 +157,8 @@ async function startServer({
 
             sendJson(res, 404, { error: "not_found" });
         } catch (error) {
-            sendJson(res, 500, {
-                error: "request_failed",
-                message: error instanceof Error ? error.message : String(error),
-            });
+            console.error("Credit Timeline request failed:", error);
+            sendJson(res, 500, { error: "request_failed" });
         }
     });
 
@@ -158,8 +169,9 @@ async function startServer({
 
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : 0;
+    origin = new URL(`http://127.0.0.1:${port}`);
     entry.server = server;
-    entry.url = `http://127.0.0.1:${port}/`;
+    entry.url = `${origin.origin}/`;
     instances.set(instanceId, entry);
     return entry;
 }

@@ -488,6 +488,8 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
             repository: "owner/repo-a",
         });
         assert.equal(repository.scope.type, SCOPES.CURRENT_REPOSITORY);
+        assert.equal(repository.source.usage, "session-store.db");
+        assert.equal(repository.source.events, "session-state");
         assert.deepEqual(
             repository.sessions.map((session) => session.id).sort(),
             [

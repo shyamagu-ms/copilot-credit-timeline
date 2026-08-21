@@ -74,3 +74,7 @@ how to read the view, every control, stage classification rules, and the data so
 ```bash
 node --test credit-timeline/data.test.mjs
 ```
+
+## License
+
+[MIT](LICENSE)

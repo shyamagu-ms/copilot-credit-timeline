@@ -579,8 +579,8 @@ export function collectDashboard({
                     "No Copilot session data yet. Use a session, then hit Refresh.",
             },
             source: {
-                usage: storePath,
-                events: stateRoot,
+                usage: parse(storePath).base,
+                events: parse(stateRoot).base,
                 aiuFormula: "SUM(total_nano_aiu) / 1,000,000,000",
                 note: "No local session store is available yet.",
             },
@@ -958,8 +958,8 @@ export function collectDashboard({
                 message: "",
             },
             source: {
-                usage: storePath,
-                events: stateRoot,
+                usage: parse(storePath).base,
+                events: parse(stateRoot).base,
                 aiuFormula: "SUM(total_nano_aiu) / 1,000,000,000",
                 note: "Sessions are selected by chat tree, repository, folder, or all-session scope. Non-chat scopes omit shutdown zero-usage sessions and untitled zero-usage records with no lifecycle event; visible descendants are promoted past omitted parents. Chat-tree scope preserves every recorded relationship.",
             },

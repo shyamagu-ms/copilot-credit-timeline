@@ -74,3 +74,7 @@ AIU = ローカルセッションストアの `SUM(total_nano_aiu) / 1,000,000,0
 ```bash
 node --test credit-timeline/data.test.mjs
 ```
+
+## ライセンス
+
+[MIT](LICENSE)
