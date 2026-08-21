@@ -9,6 +9,7 @@ import {
     classifyStageDetail,
     collectDashboard,
     normalizeRootFolder,
+    parseEvents,
     readSessionParents,
     resolveScope,
     SCOPES,
@@ -36,6 +37,41 @@ test("stage classification preserves Scrum before general activities", () => {
     assert.equal(classifyStageDetail("Review comments feedback").stage, "feedback");
     assert.equal(classifyStageDetail("Canvas extension tooling").stage, "tooling");
     assert.equal(classifyStageDetail("Discuss next steps").stage, "other");
+});
+
+test("session activity follows assistant turns rather than recent events", () => {
+    const events = (...items) =>
+        parseEvents(
+            items
+                .map((type, index) =>
+                    JSON.stringify({
+                        type,
+                        timestamp: `2026-01-01T00:00:0${index}Z`,
+                        data: { turnId: "turn-1" },
+                    }),
+                )
+                .join("\n"),
+        );
+
+    assert.equal(events("session.resume", "session.info").assistantActive, false);
+    assert.equal(
+        events("session.resume", "user.message", "assistant.turn_start")
+            .assistantActive,
+        true,
+    );
+    assert.equal(
+        events(
+            "user.message",
+            "assistant.turn_start",
+            "assistant.message",
+            "assistant.turn_end",
+        ).assistantActive,
+        false,
+    );
+    assert.equal(
+        events("assistant.turn_start", "abort").assistantActive,
+        false,
+    );
 });
 
 function createFixture() {
@@ -158,7 +194,7 @@ function createFixture() {
         id: "running-zero",
         summary: "Running zero",
         lifecycle: {
-            type: "session.start",
+            type: "assistant.turn_start",
             timestamp: new Date().toISOString(),
         },
     });
@@ -189,7 +225,7 @@ function createFixture() {
         summary: "Visible descendant",
         cwd: join(root, "worktrees", "visible-descendant"),
         lifecycle: {
-            type: "session.start",
+            type: "assistant.turn_start",
             timestamp: new Date().toISOString(),
         },
     });
@@ -605,6 +641,12 @@ test("rendered UI exposes all four explicit scope controls", () => {
     assert.match(html, /var width = Math\.max\(1, timeline\.clientWidth\)/);
     assert.match(html, /width \* 0\.2\) \/ gapCount/);
     assert.doesNotMatch(html, /domainMax\s*=\s*Math\.max\(domainMax,\s*Date\.now\(\)\)/);
+    assert.match(html, /\.bar\.active::after/);
+    assert.match(html, /animation: active-shimmer 2\.8s ease-in-out infinite/);
+    assert.match(html, /0 0 0 1px color-mix/);
+    assert.match(html, /prefers-reduced-motion: reduce/);
+    assert.match(html, /var active = s\.status === "active"/);
+    assert.match(html, /Boolean\(g\.startedAt && !g\.completedAt\)/);
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
     assert.doesNotThrow(() => new Function(scripts.at(-1)[1]));
 });

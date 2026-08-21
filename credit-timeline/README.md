@@ -31,6 +31,12 @@ Reload extensions in the GitHub Copilot app after installation.
   session's start and end; the color is its stage. White vertical ticks inside a
   bar mark when sub-agents were launched. The thin bar and number on the right
   are that session's AIU.
+- **Active work** — when the logs indicate that a session or sub-agent is still
+  running, its timeline bar gains a fine outline and a restrained moving highlight.
+  A session is active between `assistant.turn_start` and `assistant.turn_end`
+  (or `abort`); opening it with `session.resume` alone does not count. A sub-agent
+  remains active until its completion or failure event. Reduced-motion preferences
+  replace the animation with a static outline.
 - **Run settings** — the most recent model and reasoning effort are shown to the
   right of the session name. Hovering a row shows the usage history, call counts,
   and AIU, including cases where the settings changed mid-session.

@@ -601,10 +601,50 @@ button:focus-visible,
     border-radius: 5px;
     min-width: 3px;
     overflow: hidden;
+    background: var(--bar-color);
     transition: filter 0.12s ease;
 }
 
 .row:hover .bar { filter: brightness(1.18); }
+
+.bar.active {
+    overflow: hidden;
+    isolation: isolate;
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--color-white, #fff) 48%, transparent),
+        0 0 5px color-mix(in srgb, var(--bar-color) 45%, transparent);
+}
+
+.bar.active::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+    background: linear-gradient(
+        105deg,
+        transparent 22%,
+        color-mix(in srgb, var(--color-white, #fff) 18%, transparent) 39%,
+        color-mix(in srgb, var(--color-white, #fff) 78%, transparent) 50%,
+        color-mix(in srgb, var(--color-white, #fff) 18%, transparent) 61%,
+        transparent 78%
+    );
+    background-size: 240% 100%;
+    pointer-events: none;
+    animation: active-shimmer 2.8s ease-in-out infinite;
+}
+
+@keyframes active-shimmer {
+    0%, 18% { background-position: 145% 0; opacity: 0.35; }
+    72%, 100% { background-position: -145% 0; opacity: 0.62; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bar.active::after {
+        animation: none;
+        background: color-mix(in srgb, var(--color-white, #fff) 20%, transparent);
+    }
+}
 
 .bar u {
     position: absolute;
@@ -1208,6 +1248,7 @@ const JS = String.raw`
 
     function rowHtml(node, scale, maxAiu) {
         var s = node.s;
+        var active = s.status === "active";
         var a = scale.x(Date.parse(s.createdAt));
         var b = scale.x(Date.parse(s.finishedAt || s.createdAt));
         var w = Math.max(3, b - a);
@@ -1229,9 +1270,10 @@ const JS = String.raw`
                 (effort ? '<span class="effort">' + esc(effort) + '</span>' : "") +
                 "</span>"
             : "";
-        return '<div class="grid row' + (s.current ? " cur" : "") + (s.aiu >= maxAiu * 0.4 ? " hot" : "") +
+        return '<div class="grid row' + (s.current ? " cur" : "") + (active ? " active" : "") +
+            (s.aiu >= maxAiu * 0.4 ? " hot" : "") +
             '" data-id="' + esc(s.id) + '" tabindex="0" role="group"' +
-            ' aria-label="Focus on session: ' + esc(s.title) + '"' +
+            ' aria-label="' + (active ? "Active session: " : "Focus on session: ") + esc(s.title) + '"' +
             (state.root === s.id ? ' aria-current="true"' : "") + '>' +
             '<div class="g"><s style="color:' + c + '">' + esc(SHORT[s.stage] || s.stage) + '</s>' +
             '<b style="padding-left:' + pad + 'px">' +
@@ -1245,14 +1287,16 @@ const JS = String.raw`
                     (state.collapsed[s.id] ? ${JSON.stringify(ICONS.chevronRight)} : ${JSON.stringify(ICONS.chevronDown)}) +
                     s.agents.length + '</button>' : "") +
                 '</span></div>' +
-            '<div class="track"><div class="bar" style="left:' + a.toFixed(1) + 'px;width:' + w.toFixed(1) +
-            'px;background:' + c + '">' + ticks + '</div></div>' +
+            '<div class="track"><div class="bar' + (active ? " active" : "") +
+            '" title="' + (active ? "Active" : "") + '" style="left:' + a.toFixed(1) +
+            'px;width:' + w.toFixed(1) + 'px;--bar-color:' + c + '">' + ticks + '</div></div>' +
             '<div class="cred"><i style="width:' + pct.toFixed(1) + 'px;background:' + c + '"></i><b>' +
             num(s.aiu) + '</b></div>' +
             '</div>';
     }
 
     function kidHtml(s, g, scale, maxAiu, depth) {
+        var active = Boolean(g.startedAt && !g.completedAt);
         var st = g.startedAt ? Date.parse(g.startedAt) : Date.parse(s.createdAt);
         var en = g.completedAt ? Date.parse(g.completedAt) : st + 60000;
         var a = scale.x(st), w = Math.max(2, scale.x(en) - a);
@@ -1269,13 +1313,16 @@ const JS = String.raw`
                 (effort ? '<span class="effort">' + esc(effort) + '</span>' : "") +
                 "</span>"
             : "";
-        return '<div class="grid row kid" data-agent="' + esc(s.id) + "|" + esc(g.id) + '">' +
+        return '<div class="grid row kid' + (active ? " active" : "") + '" data-agent="' +
+            esc(s.id) + "|" + esc(g.id) + '" aria-label="' +
+            (active ? "Active sub-agent: " : "Sub-agent: ") + esc(summary) + '">' +
             '<div class="g"><s style="color:' + c + '">' +
             esc(g.name) + '</s><b style="padding-left:' +
             pad + 'px">' + esc(summary) + '</b>' +
             run + '</div>' +
-            '<div class="track"><div class="bar" style="left:' + a.toFixed(1) + 'px;width:' + w.toFixed(1) +
-            'px;background:' + c + '"></div></div>' +
+            '<div class="track"><div class="bar' + (active ? " active" : "") +
+            '" title="' + (active ? "Active" : "") + '" style="left:' + a.toFixed(1) +
+            'px;width:' + w.toFixed(1) + 'px;--bar-color:' + c + '"></div></div>' +
             '<div class="cred"><i style="width:' + pct.toFixed(1) + 'px;background:' + c + '"></i><b>' +
             num(g.aiu) + '</b></div>' +
             '</div>';

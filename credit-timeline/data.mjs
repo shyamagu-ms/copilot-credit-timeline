@@ -192,6 +192,7 @@ export function parseEvents(content) {
     let shutdownType = "";
     let selectedModel = "";
     let reasoningEffort = "";
+    let assistantActive = false;
 
     for (const line of content.split(/\r?\n/)) {
         if (!line.trim()) continue;
@@ -218,6 +219,15 @@ export function parseEvents(content) {
                 safeText(event.data?.selectedModel) || selectedModel;
             reasoningEffort =
                 safeText(event.data?.reasoningEffort) || reasoningEffort;
+        }
+        if (event.type === "assistant.turn_start") {
+            assistantActive = true;
+        } else if (
+            event.type === "assistant.turn_end" ||
+            event.type === "abort" ||
+            event.type === "session.shutdown"
+        ) {
+            assistantActive = false;
         }
         if (
             event.type === "tool.execution_start" &&
@@ -259,7 +269,10 @@ export function parseEvents(content) {
             });
         }
 
-        if (event.type === "subagent.completed") {
+        if (
+            event.type === "subagent.completed" ||
+            event.type === "subagent.failed"
+        ) {
             const id =
                 event.agentId ??
                 event.data?.agentId ??
@@ -299,6 +312,7 @@ export function parseEvents(content) {
         shutdownType,
         selectedModel,
         reasoningEffort,
+        assistantActive,
     };
 }
 
@@ -312,6 +326,7 @@ function readEvents(sessionId, stateRoot = SESSION_STATE) {
             shutdownType: "",
             selectedModel: "",
             reasoningEffort: "",
+            assistantActive: false,
         };
     }
     return parseEvents(readFileSync(path, "utf8"));
@@ -324,8 +339,7 @@ function statusFromEvents(events) {
             : "idle";
     }
     if (!events.lastEventAt) return "unknown";
-    const age = Date.now() - Date.parse(events.lastEventAt);
-    return age < 15 * 60 * 1000 ? "active" : "inactive";
+    return events.assistantActive ? "active" : "idle";
 }
 
 function isInactiveWithoutUsage(row, events, currentSessionId) {
