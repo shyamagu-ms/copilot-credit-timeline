@@ -72,6 +72,26 @@ test("session activity follows assistant turns rather than recent events", () =>
         events("assistant.turn_start", "abort").assistantActive,
         false,
     );
+
+    const resumed = events(
+        "assistant.turn_end",
+        "hook.start",
+        "hook.end",
+        "session.permissions_changed",
+        "session.resume",
+        "session.info",
+    );
+    assert.equal(resumed.lastEventAt, "2026-01-01T00:00:05Z");
+    assert.equal(resumed.lastActivityAt, "2026-01-01T00:00:00Z");
+    assert.equal(
+        events(
+            "assistant.turn_end",
+            "session.resume",
+            "session.info",
+            "user.message",
+        ).lastActivityAt,
+        "2026-01-01T00:00:03Z",
+    );
 });
 
 function createFixture() {
@@ -435,6 +455,31 @@ test("folder normalization is idempotent and preserves filesystem roots", () => 
 test("dashboard collection keeps chat, repository, and all scopes separate", () => {
     const fixture = createFixture();
     try {
+        writeFileSync(
+            join(fixture.stateRoot, "repo-only", "events.jsonl"),
+            [
+                {
+                    type: "assistant.turn_end",
+                    timestamp: "2026-01-03T00:05:00Z",
+                    data: { turnId: "turn-1" },
+                },
+                {
+                    type: "session.permissions_changed",
+                    timestamp: "2026-01-05T00:00:00Z",
+                    data: {},
+                },
+                {
+                    type: "session.resume",
+                    timestamp: "2026-01-05T00:00:01Z",
+                    data: {},
+                },
+                {
+                    type: "session.info",
+                    timestamp: "2026-01-05T00:00:02Z",
+                    data: {},
+                },
+            ].map(JSON.stringify).join("\n"),
+        );
         const common = {
             currentSessionId: GENERAL_CHAT_ID,
             storePath: fixture.storePath,
@@ -488,6 +533,11 @@ test("dashboard collection keeps chat, repository, and all scopes separate", () 
             repository: "owner/repo-a",
         });
         assert.equal(repository.scope.type, SCOPES.CURRENT_REPOSITORY);
+        assert.equal(
+            repository.sessions.find((session) => session.id === "repo-only")
+                .finishedAt,
+            "2026-01-03T00:05:00Z",
+        );
         assert.equal(repository.source.usage, "session-store.db");
         assert.equal(repository.source.events, "session-state");
         assert.deepEqual(

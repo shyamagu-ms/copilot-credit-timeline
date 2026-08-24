@@ -8,6 +8,23 @@ const COPILOT_HOME =
 const SESSION_STORE = join(COPILOT_HOME, "session-store.db");
 const SESSION_STATE = join(COPILOT_HOME, "session-state");
 const APP_STORE = join(COPILOT_HOME, "data.db");
+const PASSIVE_EVENT_TYPES = new Set([
+    "hook.start",
+    "hook.end",
+    "session.binary_asset",
+    "session.canvas.recorded",
+    "session.canvas.removed",
+    "session.context_changed",
+    "session.info",
+    "session.mode_changed",
+    "session.model_change",
+    "session.permissions_changed",
+    "session.resume",
+    "session.warning",
+    "session.workspace_file_changed",
+    "system.message",
+    "system.notification",
+]);
 
 export const STAGES = [
     { id: "goal", label: "Product Goal", order: 10 },
@@ -188,6 +205,7 @@ export function parseEvents(content) {
     const agents = new Map();
     const taskMetadata = new Map();
     let lastEventAt = "";
+    let lastActivityAt = "";
     let lastLifecycleType = "";
     let shutdownType = "";
     let selectedModel = "";
@@ -205,6 +223,13 @@ export function parseEvents(content) {
 
         if (event.timestamp && event.timestamp > lastEventAt) {
             lastEventAt = event.timestamp;
+        }
+        if (
+            event.timestamp &&
+            !PASSIVE_EVENT_TYPES.has(event.type) &&
+            event.timestamp > lastActivityAt
+        ) {
+            lastActivityAt = event.timestamp;
         }
         if (
             event.type === "session.start" ||
@@ -308,6 +333,7 @@ export function parseEvents(content) {
             }),
         })),
         lastEventAt,
+        lastActivityAt,
         lastLifecycleType,
         shutdownType,
         selectedModel,
@@ -322,6 +348,7 @@ function readEvents(sessionId, stateRoot = SESSION_STATE) {
         return {
             agents: [],
             lastEventAt: "",
+            lastActivityAt: "",
             lastLifecycleType: "",
             shutdownType: "",
             selectedModel: "",
@@ -330,6 +357,20 @@ function readEvents(sessionId, stateRoot = SESSION_STATE) {
         };
     }
     return parseEvents(readFileSync(path, "utf8"));
+}
+
+function latestTimestamp(...values) {
+    let latest = "";
+    let latestMs = -Infinity;
+    for (const value of values) {
+        const timestamp = safeText(value);
+        const time = Date.parse(timestamp);
+        if (Number.isFinite(time) && time > latestMs) {
+            latest = timestamp;
+            latestMs = time;
+        }
+    }
+    return latest;
 }
 
 function statusFromEvents(events) {
@@ -868,7 +909,12 @@ export function collectDashboard({
             const classification = classifyStageDetail(rawTitle);
             const title = conciseTitle(rawTitle);
             const finishedAt =
-                events.lastEventAt || row.updated_at || row.created_at;
+                latestTimestamp(
+                    events.lastActivityAt,
+                    row.usage_updated_at,
+                ) ||
+                (!events.lastEventAt ? row.updated_at : "") ||
+                row.created_at;
 
             return {
                 id: row.id,
