@@ -39,6 +39,85 @@ test("stage classification preserves Scrum before general activities", () => {
     assert.equal(classifyStageDetail("Discuss next steps").stage, "other");
 });
 
+test("subagent summaries join task calls without changing usage identifiers", () => {
+    for (const identity of [
+        { agentId: "agent-1" },
+        { data: { agentId: "agent-1" } },
+        {},
+    ]) {
+        for (const lifecycle of [
+            ["subagent.started"],
+            ["subagent.started", "subagent.completed"],
+            ["subagent.started", "subagent.failed"],
+            ["subagent.completed"],
+            ["subagent.failed"],
+        ]) {
+            const events = [
+                {
+                    type: "tool.execution_start",
+                    data: {
+                        toolName: "task",
+                        toolCallId: "call-1",
+                        arguments: {
+                            name: "reviewer",
+                            description: "Review implementation",
+                            prompt: "Inspect the implementation.\nReport findings.",
+                        },
+                    },
+                },
+                ...lifecycle.map((type) => ({
+                    ...identity,
+                    type,
+                    data: {
+                        ...identity.data,
+                        toolCallId: "call-1",
+                        agentName: "general-purpose",
+                        model: "gpt-6-astra",
+                    },
+                })),
+            ];
+            const [agent] = parseEvents(events.map(JSON.stringify).join("\n")).agents;
+            assert.equal(agent.id, identity.agentId ?? identity.data?.agentId ?? "call-1");
+            assert.equal(agent.taskName, "reviewer");
+            assert.equal(agent.taskDescription, "Review implementation");
+            assert.equal(agent.promptSummary, "Inspect the implementation.");
+        }
+    }
+});
+
+test("subagent task links survive completion without a tool call ID", () => {
+    const events = [
+        {
+            type: "subagent.started",
+            agentId: "agent-1",
+            data: { toolCallId: "call-1" },
+        },
+        {
+            type: "subagent.completed",
+            agentId: "agent-1",
+            data: { totalToolCalls: 3 },
+        },
+        {
+            type: "subagent.started",
+            agentId: "agent-2",
+            data: { toolCallId: "call-2" },
+        },
+        {
+            type: "tool.execution_start",
+            data: {
+                toolName: "task",
+                toolCallId: "call-1",
+                arguments: { description: "First task" },
+            },
+        },
+    ];
+    const [first, second] = parseEvents(events.map(JSON.stringify).join("\n")).agents;
+    assert.equal(first.taskDescription, "First task");
+    assert.equal(first.toolCalls, 3);
+    assert.equal(second.taskDescription, "");
+    assert.equal(second.promptSummary, "");
+});
+
 test("session activity follows assistant turns rather than recent events", () => {
     const events = (...items) =>
         parseEvents(

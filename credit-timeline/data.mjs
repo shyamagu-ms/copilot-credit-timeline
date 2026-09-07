@@ -204,6 +204,7 @@ function readWorkspace(sessionId, stateRoot = SESSION_STATE) {
 export function parseEvents(content) {
     const agents = new Map();
     const taskMetadata = new Map();
+    const agentTaskCalls = new Map();
     let lastEventAt = "";
     let lastActivityAt = "";
     let lastLifecycleType = "";
@@ -278,6 +279,8 @@ export function parseEvents(content) {
                 event.data?.agentId ??
                 event.data?.toolCallId;
             if (!id) continue;
+            const toolCallId = safeText(event.data?.toolCallId);
+            if (toolCallId) agentTaskCalls.set(id, toolCallId);
             agents.set(id, {
                 id,
                 name:
@@ -303,6 +306,8 @@ export function parseEvents(content) {
                 event.data?.agentId ??
                 event.data?.toolCallId;
             if (!id) continue;
+            const toolCallId = safeText(event.data?.toolCallId);
+            if (toolCallId) agentTaskCalls.set(id, toolCallId);
             const prior = agents.get(id) ?? {
                 id,
                 name:
@@ -326,7 +331,7 @@ export function parseEvents(content) {
     return {
         agents: [...agents.values()].map((agent) => ({
             ...agent,
-            ...(taskMetadata.get(agent.id) ?? {
+            ...(taskMetadata.get(agentTaskCalls.get(agent.id) ?? agent.id) ?? {
                 taskName: "",
                 taskDescription: "",
                 promptSummary: "",
