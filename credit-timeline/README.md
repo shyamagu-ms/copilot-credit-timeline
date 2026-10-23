@@ -146,6 +146,7 @@ The open input accepts `scope: "current_chat_tree" | "current_repository" |
 "current_folder" | "all_sessions"`. To look at another repository, pass
 `{ scope: "current_repository", repository: "owner/repo" }`. The `refresh` and
 `top_consumers` actions accept the same optional scope, repository, and folder fields.
+Omitting `input`, passing `null`, or passing `{}` opens the same default scope.
 
 ## Privacy
 

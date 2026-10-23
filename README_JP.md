@@ -50,6 +50,7 @@ open_canvas({ canvasId: "credit-timeline", instanceId: "credit-timeline-1" })
 
 open input には `scope`（`current_chat_tree` / `current_repository` /
 `current_folder` / `all_sessions`）と `repository` / `folder` を指定できます。
+`input` の省略・`null`・`{}` は同じ扱いで、既定のスコープを開きます。
 `refresh`・`top_consumers` の各 action も同じ項目を受け付けます。
 
 ```text

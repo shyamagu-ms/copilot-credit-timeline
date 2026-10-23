@@ -195,7 +195,7 @@ const session = await joinSession({
             description:
                 "セッションとサブエージェントを時系列のタイムラインで並べ、クレジット(AIU)消費を俯瞰します。",
             inputSchema: {
-                type: "object",
+                type: ["object", "null"],
                 additionalProperties: false,
                 properties: {
                     repository: {

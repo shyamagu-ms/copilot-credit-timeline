@@ -116,6 +116,7 @@ open_canvas({ canvasId: "credit-timeline", instanceId: "credit-timeline-1" })
 
 open input の `scope` には `current_chat_tree`、`current_repository`、`current_folder`、
 `all_sessions` を指定できる。
+`input` の省略・`null`・`{}` は同じ扱いで、既定のスコープを開く。
 別リポジトリを見る場合は `{ scope: "current_repository", repository: "owner/repo" }` を渡す。
 `refresh` と `top_consumers` actions も同じ任意の scope / repository / folder を受け付ける。
 

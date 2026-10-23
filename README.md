@@ -50,6 +50,7 @@ open_canvas({ canvasId: "credit-timeline", instanceId: "credit-timeline-1" })
 
 Optional open input: `scope` (`current_chat_tree` | `current_repository` |
 `current_folder` | `all_sessions`), plus `repository` / `folder`.
+Omitting `input`, passing `null`, or passing `{}` opens the same default scope.
 Actions: `refresh` and `top_consumers` accept the same fields.
 
 ```text
